@@ -220,7 +220,7 @@ func translate(err error) error {
 	case errors.Is(err, ErrConflict):
 		return apperror.Conflict("email already exists", err)
 	case errors.Is(err, ErrVersion):
-		return apperror.Conflict("user was changed or does not exist", err)
+		return apperror.StaleVersion(err)
 	default:
 		return apperror.Internal(err)
 	}
@@ -273,4 +273,4 @@ func (s *Service) cacheDelete(ctx context.Context, id string) {
 	}
 }
 
-var Module = fx.Module("user", fx.Provide(database.NewTransactor, NewRepository, NewService))
+var Module = fx.Module("user", fx.Provide(NewRepository, NewService))

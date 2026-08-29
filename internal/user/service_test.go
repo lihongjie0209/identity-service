@@ -103,6 +103,14 @@ func TestService_ListValidation(t *testing.T) {
 	}
 }
 
+func TestTranslate_StaleVersionUsesGlobalCode(t *testing.T) {
+	t.Parallel()
+	err, ok := translate(ErrVersion).(*apperror.Error)
+	if !ok || err.Code != apperror.CodeStaleVersion {
+		t.Fatalf("translate(ErrVersion) = %v, want code %d", err, apperror.CodeStaleVersion)
+	}
+}
+
 func newTestService(repository Repository, transactor *database.Transactor) *Service {
 	return NewService(repository, transactor, nil, nil, nil, config.Config{User: config.User{CacheTTL: time.Minute, LockTTL: time.Second, LockRetryDelay: time.Millisecond}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }

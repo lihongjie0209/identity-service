@@ -1,0 +1,401 @@
+package identity
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
+	"github.com/lihongjie0209/identity-service/internal/apperror"
+	"github.com/lihongjie0209/identity-service/internal/config"
+	"github.com/lihongjie0209/identity-service/internal/database"
+	"github.com/lihongjie0209/microservice-platform-go/audit"
+	"github.com/lihongjie0209/microservice-platform-go/eventbus"
+	"github.com/lihongjie0209/microservice-platform-go/principal"
+	identityv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/identity/v1"
+	"go.uber.org/fx"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+const refreshTTL = 30 * 24 * time.Hour
+const loginFailureThreshold = 5
+const loginLockDuration = 15 * time.Minute
+
+type Service struct {
+	repository *Repository
+	transactor *database.Transactor
+	hasher     *PasswordHasher
+	issuer     *TokenIssuer
+	now        func() time.Time
+}
+
+func NewService(repository *Repository, transactor *database.Transactor, cfg config.Config) (*Service, error) {
+	hasher, err := NewPasswordHasher(DefaultPasswordParameters())
+	if err != nil {
+		return nil, err
+	}
+	seed := sha256.Sum256([]byte(cfg.JWT.Secret))
+	keyID := cfg.JWT.KeyID
+	if keyID == "" {
+		keyID = "identity-current"
+	}
+	issuer, err := NewTokenIssuer(cfg.JWT.Issuer, []string{cfg.App.Name}, keyID, ed25519.NewKeyFromSeed(seed[:]), cfg.JWT.TTL)
+	if err != nil {
+		return nil, err
+	}
+	for previousKeyID, secret := range cfg.JWT.PreviousSecrets {
+		previousSeed := sha256.Sum256([]byte(secret))
+		previousPrivate := ed25519.NewKeyFromSeed(previousSeed[:])
+		if err := issuer.AddVerificationKey(previousKeyID, previousPrivate.Public().(ed25519.PublicKey)); err != nil {
+			return nil, err
+		}
+	}
+	return &Service{repository: repository, transactor: transactor, hasher: hasher, issuer: issuer, now: time.Now}, nil
+}
+
+func (s *Service) Register(ctx context.Context, username, displayName, email, phone, password string) (User, error) {
+	username = strings.ToLower(strings.TrimSpace(username))
+	displayName = strings.TrimSpace(displayName)
+	email = strings.ToLower(strings.TrimSpace(email))
+	phone = strings.TrimSpace(phone)
+	if username == "" || displayName == "" || email == "" {
+		return User{}, apperror.Invalid("username, display_name, and email are required", nil)
+	}
+	hash, err := s.hasher.Hash(password)
+	if err != nil {
+		return User{}, apperror.Invalid(err.Error(), err)
+	}
+	fields, err := audit.New(ctx, s.now().UTC())
+	if err != nil {
+		return User{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	user := User{ID: uuid.NewString(), Username: username, DisplayName: displayName, Email: email, Phone: phone, Status: StatusActive, Fields: fields}
+	credential := Credential{ID: uuid.NewString(), UserID: user.ID, Type: "password", SecretHash: hash, Status: StatusActive, Fields: fields}
+	event, err := newOutboxEvent(ctx, "platform.identity.user.created.v1", "platform.identity.v1.UserCreated", user.ID, fields.CreatedAt, &identityv1.UserCreatedEvent{User: protoIdentityUser(user)})
+	if err != nil {
+		return User{}, apperror.Internal(err)
+	}
+	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+		if err := s.repository.CreateUser(ctx, tx, user, credential); err != nil {
+			return err
+		}
+		return s.repository.InsertOutbox(ctx, tx, event)
+	})
+	if err != nil {
+		return User{}, translateIdentityError(err)
+	}
+	return user, nil
+}
+
+func (s *Service) Login(ctx context.Context, login, password string) (Tokens, error) {
+	login = strings.TrimSpace(login)
+	if login == "" || password == "" {
+		return Tokens{}, apperror.Invalid("login and password are required", nil)
+	}
+	user, credential, err := s.repository.UserByLogin(ctx, login)
+	if err != nil {
+		return Tokens{}, apperror.Unauthorized("invalid credentials")
+	}
+	now := s.now().UTC()
+	if user.Status != StatusActive || (user.LockedUntil != nil && user.LockedUntil.After(now)) || credential.Status != StatusActive {
+		return Tokens{}, apperror.Unauthorized("account is unavailable")
+	}
+	valid, _, err := s.hasher.Verify(password, credential.SecretHash)
+	if err != nil || !valid {
+		_ = s.repository.RecordFailedLogin(ctx, user.ID, loginFailureThreshold, now.Add(loginLockDuration), now)
+		return Tokens{}, apperror.Unauthorized("invalid credentials")
+	}
+	if err := s.repository.ResetFailedLogin(ctx, user.ID, now); err != nil {
+		return Tokens{}, apperror.Internal(err)
+	}
+	return s.createSession(principal.SystemContext(ctx, "identity:login"), user.ID, "", "")
+}
+
+func (s *Service) createSession(ctx context.Context, userID, tenantID, membershipID string) (Tokens, error) {
+	now := s.now().UTC()
+	rawRefresh, refreshHash, err := newRefreshToken()
+	if err != nil {
+		return Tokens{}, apperror.Internal(err)
+	}
+	fields, err := audit.New(ctx, now)
+	if err != nil {
+		return Tokens{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	session := Session{ID: uuid.NewString(), UserID: userID, RefreshTokenHash: refreshHash, TenantID: tenantID, MembershipID: membershipID, ExpiresAt: now.Add(refreshTTL), LastUsedAt: now, Fields: fields}
+	access, expiresAt, err := s.issuer.Issue(userID, "user", session.ID, tenantID, membershipID)
+	if err != nil {
+		return Tokens{}, apperror.Internal(err)
+	}
+	if err := s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error { return s.repository.CreateSession(ctx, tx, session) }); err != nil {
+		return Tokens{}, translateIdentityError(err)
+	}
+	return Tokens{AccessToken: access, RefreshToken: rawRefresh, TokenType: "Bearer", ExpiresAt: expiresAt, SessionID: session.ID}, nil
+}
+
+func (s *Service) Refresh(ctx context.Context, refreshToken string) (Tokens, error) {
+	hash := hashRefreshToken(refreshToken)
+	if refreshToken == "" {
+		return Tokens{}, apperror.Unauthorized("invalid refresh token")
+	}
+	session, err := s.repository.SessionByRefreshHash(ctx, hash)
+	if err != nil || session.RevokedAt != nil || !session.ExpiresAt.After(s.now().UTC()) {
+		return Tokens{}, apperror.Unauthorized("invalid refresh token")
+	}
+	user, err := s.repository.GetUser(ctx, session.UserID)
+	if err != nil || user.Status != StatusActive {
+		return Tokens{}, apperror.Unauthorized("account is unavailable")
+	}
+	rawRefresh, newHash, err := newRefreshToken()
+	if err != nil {
+		return Tokens{}, apperror.Internal(err)
+	}
+	now := s.now().UTC()
+	session.RefreshTokenHash = newHash
+	session.LastUsedAt = now
+	session.UpdatedAt = now
+	session.UpdatedBy = session.UserID
+	access, expiresAt, err := s.issuer.Issue(user.ID, "user", session.ID, session.TenantID, session.MembershipID)
+	if err != nil {
+		return Tokens{}, apperror.Internal(err)
+	}
+	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error { return s.repository.RotateSession(ctx, tx, session, hash) })
+	if err != nil {
+		return Tokens{}, apperror.Unauthorized("refresh token was already used")
+	}
+	return Tokens{AccessToken: access, RefreshToken: rawRefresh, TokenType: "Bearer", ExpiresAt: expiresAt, SessionID: session.ID}, nil
+}
+
+func (s *Service) Logout(ctx context.Context, sessionID, reason string) error {
+	actor, err := principal.Require(ctx)
+	if err != nil {
+		return apperror.Unauthorized("authenticated actor is required")
+	}
+	if reason == "" {
+		reason = "logout"
+	}
+	now := s.now().UTC()
+	session, err := s.repository.GetSession(ctx, sessionID, actor.ID)
+	if err != nil {
+		return translateIdentityError(err)
+	}
+	event, err := newOutboxEvent(ctx, "platform.identity.session.revoked.v1", "platform.identity.v1.SessionRevoked", session.ID, now, &identityv1.SessionRevokedEvent{SessionId: session.ID, UserId: session.UserID, TenantId: session.TenantID, Reason: reason})
+	if err != nil {
+		return apperror.Internal(err)
+	}
+	if err := s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+		if err := s.repository.RevokeSession(ctx, tx, sessionID, actor.ID, reason, actor.ID, now); err != nil {
+			return err
+		}
+		return s.repository.InsertOutbox(ctx, tx, event)
+	}); err != nil {
+		return translateIdentityError(err)
+	}
+	return nil
+}
+
+func (s *Service) GetUser(ctx context.Context, id string) (User, error) {
+	user, err := s.repository.GetUser(ctx, id)
+	return user, translateIdentityError(err)
+}
+func (s *Service) UpdateUserStatus(ctx context.Context, id, status, reason string, version int64) (User, error) {
+	if status != StatusActive && status != StatusDisabled && status != StatusLocked && status != StatusClosed {
+		return User{}, apperror.Invalid("invalid user status", nil)
+	}
+	actor, err := principal.Require(ctx)
+	if err != nil {
+		return User{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	current, err := s.repository.GetUser(ctx, id)
+	if err != nil {
+		return User{}, translateIdentityError(err)
+	}
+	now := s.now().UTC()
+	event, err := newOutboxEvent(ctx, "platform.identity.user.status-changed.v1", "platform.identity.v1.UserStatusChanged", id, now, &identityv1.UserStatusChangedEvent{UserId: id, PreviousStatus: identityv1.UserStatus(identityv1.UserStatus_value["USER_STATUS_"+strings.ToUpper(current.Status)]), CurrentStatus: identityv1.UserStatus(identityv1.UserStatus_value["USER_STATUS_"+strings.ToUpper(status)]), Reason: reason})
+	if err != nil {
+		return User{}, apperror.Internal(err)
+	}
+	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+		if err := s.repository.UpdateUserStatus(ctx, tx, id, status, actor.ID, version, now); err != nil {
+			return err
+		}
+		return s.repository.InsertOutbox(ctx, tx, event)
+	})
+	if err != nil {
+		return User{}, translateIdentityError(err)
+	}
+	return s.repository.GetUser(ctx, id)
+}
+func (s *Service) BatchGetUsers(ctx context.Context, ids []string) ([]User, error) {
+	users, err := s.repository.BatchGetUsers(ctx, ids)
+	return users, translateIdentityError(err)
+}
+func (s *Service) ValidateSession(ctx context.Context, id, userID string) (Session, bool, error) {
+	session, err := s.repository.GetSession(ctx, id, userID)
+	if errors.Is(err, ErrNotFound) {
+		return Session{}, false, nil
+	}
+	if err != nil {
+		return Session{}, false, translateIdentityError(err)
+	}
+	return session, session.RevokedAt == nil && session.ExpiresAt.After(s.now().UTC()), nil
+}
+func (s *Service) RevokeTenantSessions(ctx context.Context, userID, tenantID, reason string) (uint64, error) {
+	actor, err := principal.Require(ctx)
+	if err != nil {
+		return 0, apperror.Unauthorized("authenticated actor is required")
+	}
+	count, err := s.repository.RevokeTenantSessions(ctx, userID, tenantID, reason, actor.ID, s.now().UTC())
+	return count, translateIdentityError(err)
+}
+func (s *Service) IssueTenantToken(ctx context.Context, userID, tenantID, membershipID string) (string, time.Time, error) {
+	actor, err := principal.Require(ctx)
+	if err != nil {
+		return "", time.Time{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	if actor.ID != userID && actor.Type != principal.TypeServiceAccount {
+		return "", time.Time{}, apperror.New(apperror.CodeForbidden, "cannot issue token for another user", 403, nil)
+	}
+	return s.issuer.Issue(userID, "user", actor.SessionID, tenantID, membershipID)
+}
+func (s *Service) GetServiceAccount(ctx context.Context, id string) (ServiceAccount, error) {
+	account, err := s.repository.GetServiceAccount(ctx, id)
+	if err == nil {
+		_ = json.Unmarshal([]byte(account.AudiencesJSON), &account.Audiences)
+	}
+	return account, translateIdentityError(err)
+}
+func (s *Service) CreateServiceAccount(ctx context.Context, name string, audiences []string) (ServiceAccount, string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(audiences) == 0 {
+		return ServiceAccount{}, "", apperror.Invalid("name and audiences are required", nil)
+	}
+	fields, err := audit.New(ctx, s.now().UTC())
+	if err != nil {
+		return ServiceAccount{}, "", apperror.Unauthorized("authenticated actor is required")
+	}
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return ServiceAccount{}, "", apperror.Internal(err)
+	}
+	secret := base64.RawURLEncoding.EncodeToString(raw)
+	hash, err := s.hasher.Hash(secret)
+	if err != nil {
+		return ServiceAccount{}, "", apperror.Internal(err)
+	}
+	encoded, err := json.Marshal(audiences)
+	if err != nil {
+		return ServiceAccount{}, "", apperror.Invalid("invalid audiences", err)
+	}
+	account := ServiceAccount{ID: uuid.NewString(), ClientID: "svc_" + uuid.NewString(), Name: name, SecretHash: hash, Status: StatusActive, AudiencesJSON: string(encoded), Audiences: audiences, Fields: fields}
+	event, err := newOutboxEvent(ctx, "platform.identity.service-account.status-changed.v1", "platform.identity.v1.ServiceAccountStatusChanged", account.ID, fields.CreatedAt, &identityv1.ServiceAccountStatusChangedEvent{ServiceAccountId: account.ID, CurrentStatus: StatusActive, Reason: "created"})
+	if err != nil {
+		return ServiceAccount{}, "", apperror.Internal(err)
+	}
+	if err := s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+		if err := s.repository.CreateServiceAccount(ctx, tx, account); err != nil {
+			return err
+		}
+		return s.repository.InsertOutbox(ctx, tx, event)
+	}); err != nil {
+		return ServiceAccount{}, "", translateIdentityError(err)
+	}
+	return account, secret, nil
+}
+func (s *Service) UpdateServiceAccountStatus(ctx context.Context, id, status string, version int64) error {
+	if status != StatusActive && status != StatusDisabled {
+		return apperror.Invalid("status must be active or disabled", nil)
+	}
+	actor, err := principal.Require(ctx)
+	if err != nil {
+		return apperror.Unauthorized("authenticated actor is required")
+	}
+	current, err := s.repository.GetServiceAccount(ctx, id)
+	if err != nil {
+		return translateIdentityError(err)
+	}
+	now := s.now().UTC()
+	event, err := newOutboxEvent(ctx, "platform.identity.service-account.status-changed.v1", "platform.identity.v1.ServiceAccountStatusChanged", id, now, &identityv1.ServiceAccountStatusChangedEvent{ServiceAccountId: id, PreviousStatus: current.Status, CurrentStatus: status, Reason: "administrative update"})
+	if err != nil {
+		return apperror.Internal(err)
+	}
+	return translateIdentityError(s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+		if err := s.repository.UpdateServiceAccountStatus(ctx, tx, id, status, actor.ID, version, now); err != nil {
+			return err
+		}
+		return s.repository.InsertOutbox(ctx, tx, event)
+	}))
+}
+func (s *Service) ServiceAccountToken(ctx context.Context, clientID, secret string) (string, time.Time, error) {
+	account, err := s.repository.ServiceAccountByClientID(ctx, clientID)
+	if err != nil || account.Status != StatusActive {
+		return "", time.Time{}, apperror.Unauthorized("invalid service credentials")
+	}
+	valid, _, verifyErr := s.hasher.Verify(secret, account.SecretHash)
+	if verifyErr != nil || !valid {
+		return "", time.Time{}, apperror.Unauthorized("invalid service credentials")
+	}
+	return s.issuer.Issue(account.ID, "service_account", "", "", "")
+}
+func (s *Service) JWKS() JWKS                             { return s.issuer.JWKS() }
+func (s *Service) Parse(raw string) (*TokenClaims, error) { return s.issuer.Parse(raw) }
+
+func newRefreshToken() (string, string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", "", fmt.Errorf("generate refresh token: %w", err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(raw)
+	return token, hashRefreshToken(token), nil
+}
+func hashRefreshToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+func translateIdentityError(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return apperror.NotFound("identity resource not found")
+	case errors.Is(err, ErrConflict):
+		return apperror.Conflict("identity resource already exists", err)
+	case errors.Is(err, ErrStale):
+		return apperror.StaleVersion(err)
+	default:
+		return apperror.Internal(err)
+	}
+}
+
+func newOutboxEvent(ctx context.Context, subject, eventType, aggregateID string, occurredAt time.Time, payload proto.Message) (OutboxEvent, error) {
+	actor, err := principal.Require(ctx)
+	if err != nil {
+		return OutboxEvent{}, err
+	}
+	id := uuid.NewString()
+	envelope, err := eventbus.NewEnvelope(eventbus.Metadata{EventID: id, EventType: eventType, AggregateID: aggregateID, AggregateType: "identity", SchemaVersion: 1, ActorID: actor.ID, ActorType: string(actor.Type), OccurredAt: occurredAt}, payload)
+	if err != nil {
+		return OutboxEvent{}, err
+	}
+	encoded, err := proto.Marshal(envelope)
+	if err != nil {
+		return OutboxEvent{}, err
+	}
+	return OutboxEvent{ID: id, Subject: subject, Envelope: encoded, AvailableAt: occurredAt, Fields: audit.Fields{Version: 1, CreatedAt: occurredAt, UpdatedAt: occurredAt, CreatedBy: actor.ID, UpdatedBy: actor.ID}}, nil
+}
+
+func protoIdentityUser(user User) *identityv1.User {
+	statuses := map[string]identityv1.UserStatus{StatusActive: identityv1.UserStatus_USER_STATUS_ACTIVE, StatusDisabled: identityv1.UserStatus_USER_STATUS_DISABLED, StatusLocked: identityv1.UserStatus_USER_STATUS_LOCKED, StatusClosed: identityv1.UserStatus_USER_STATUS_CLOSED}
+	return &identityv1.User{Id: user.ID, Username: user.Username, DisplayName: user.DisplayName, Email: user.Email, Phone: user.Phone, Status: statuses[user.Status], CreatedAt: timestamppb.New(user.CreatedAt), UpdatedAt: timestamppb.New(user.UpdatedAt), Version: user.Version, CreatedBy: user.CreatedBy, UpdatedBy: user.UpdatedBy}
+}
+
+var Module = fx.Module("identity", fx.Provide(NewRepository, NewService))

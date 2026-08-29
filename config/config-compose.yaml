@@ -12,3 +12,6 @@ grpc:
   reflection_enabled: true
 cron:
   enabled: true
+event_bus:
+  enabled: true
+  urls: [nats://nats:4222]

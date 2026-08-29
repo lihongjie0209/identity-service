@@ -1,6 +1,12 @@
-# Go Web API Template
+# Identity Service
 
-Production-ready Go microservice identity-service.
+平台身份域服务，拥有用户、密码凭据、设备会话、刷新令牌、JWT/JWKS 和服务账号。前端管理接口统一使用 POST+JSON；服务间查询与会话操作使用 `platform.identity.v1.IdentityService`。除标准 `/.well-known/jwks.json` 外，不提供跨服务数据库访问。
+
+访问令牌使用 Ed25519/EdDSA。`jwt.key_id` 指定当前签名键，`jwt.secret` 通过环境或 Secret 注入；轮换时更换二者，并在 `jwt.previous_secrets` 中按旧 `kid` 保留旧密钥至最长 Token TTL 结束。刷新令牌只持久化哈希且每次使用都会旋转，重复使用旧令牌会失败。
+
+用户、服务账号和会话变更与 `outbox_events` 在同一数据库事务提交，再由 NATS JetStream dispatcher 发布。高增长的会话和 outbox 数据需按部署保留策略清理；PostgreSQL outbox 已按 `created_at` 分区，生产环境应由 DBA 或 `pg_partman` 预创建时间分区并在归档后删除历史分区。
+
+集成测试通过 Testcontainers 独立验证 PostgreSQL、MySQL、Redis、HTTP 和 gRPC，不依赖 tenant 或 authorization 服务运行。
 
 
 ## Quick start

@@ -15,6 +15,25 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/.well-known/jwks.json": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "authentication"
+                ],
+                "summary": "Return active and grace-period verification keys",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/identity.JWKS"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/auth/login": {
             "post": {
                 "consumes": [
@@ -29,7 +48,7 @@ const docTemplate = `{
                 "summary": "Issue a JWT access token",
                 "parameters": [
                     {
-                        "description": "Client credentials",
+                        "description": "Username/email and password",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -50,7 +69,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "body": {
-                                            "$ref": "#/definitions/httptransport.LoginResponseBody"
+                                            "$ref": "#/definitions/identity.Tokens"
                                         }
                                     }
                                 }
@@ -73,6 +92,225 @@ const docTemplate = `{
                         "description": "Code 10029: rate limited",
                         "schema": {
                             "$ref": "#/definitions/httptransport.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/logout": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "authentication"
+                ],
+                "summary": "Revoke the current session",
+                "parameters": [
+                    {
+                        "description": "Session",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.LogoutRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/refresh": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "authentication"
+                ],
+                "summary": "Rotate a refresh token",
+                "parameters": [
+                    {
+                        "description": "Refresh token",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.RefreshRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/identity.Tokens"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/service-token": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "authentication"
+                ],
+                "summary": "Issue a service-account access token",
+                "parameters": [
+                    {
+                        "description": "Client credentials",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.ServiceAccountTokenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/identities/register": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "PSK": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "identities"
+                ],
+                "summary": "Register a user identity",
+                "parameters": [
+                    {
+                        "description": "Identity",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.RegisterIdentityRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/httptransport.IdentityResponseBody"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/identities/update-status": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "identities"
+                ],
+                "summary": "Update user status with optimistic locking",
+                "parameters": [
+                    {
+                        "description": "Status and version",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.UpdateIdentityStatusRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/httptransport.IdentityResponseBody"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -120,7 +358,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/users/create": {
+        "/api/v1/service-accounts/create": {
             "post": {
                 "security": [
                     {
@@ -134,79 +372,17 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "users"
+                    "service-accounts"
                 ],
-                "summary": "Create a user",
+                "summary": "Create a service account and return its secret once",
                 "parameters": [
                     {
-                        "description": "User",
+                        "description": "Service account",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/httptransport.CreateUserRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/httptransport.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "body": {
-                                            "$ref": "#/definitions/user.User"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "Code 10001: invalid request",
-                        "schema": {
-                            "$ref": "#/definitions/httptransport.Response"
-                        }
-                    },
-                    "409": {
-                        "description": "Code 30009: email already exists",
-                        "schema": {
-                            "$ref": "#/definitions/httptransport.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/users/delete": {
-            "post": {
-                "security": [
-                    {
-                        "Bearer": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "users"
-                ],
-                "summary": "Delete a user using optimistic locking",
-                "parameters": [
-                    {
-                        "description": "User ID and current version",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/httptransport.DeleteUserRequest"
+                            "$ref": "#/definitions/httptransport.CreateServiceAccountRequest"
                         }
                     }
                 ],
@@ -220,7 +396,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/users/get": {
+        "/api/v1/service-accounts/update-status": {
             "post": {
                 "security": [
                     {
@@ -234,147 +410,23 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "users"
+                    "service-accounts"
                 ],
-                "summary": "Get a user",
+                "summary": "Enable or disable a service account with optimistic locking",
                 "parameters": [
                     {
-                        "description": "User ID",
+                        "description": "Status and version",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/httptransport.GetUserRequest"
+                            "$ref": "#/definitions/httptransport.UpdateServiceAccountStatusRequest"
                         }
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/httptransport.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "body": {
-                                            "$ref": "#/definitions/user.User"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "404": {
-                        "description": "Code 10004: user not found",
-                        "schema": {
-                            "$ref": "#/definitions/httptransport.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/users/list": {
-            "post": {
-                "security": [
-                    {
-                        "Bearer": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "users"
-                ],
-                "summary": "List users",
-                "parameters": [
-                    {
-                        "description": "Pagination",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/httptransport.ListUsersRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/httptransport.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "body": {
-                                            "$ref": "#/definitions/user.Page"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/users/update": {
-            "post": {
-                "security": [
-                    {
-                        "Bearer": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "users"
-                ],
-                "summary": "Update a user using optimistic locking",
-                "parameters": [
-                    {
-                        "description": "User and current version",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/httptransport.UpdateUserRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/httptransport.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "body": {
-                                            "$ref": "#/definitions/user.User"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "409": {
-                        "description": "Code 30009: version conflict",
                         "schema": {
                             "$ref": "#/definitions/httptransport.Response"
                         }
@@ -540,88 +592,75 @@ const docTemplate = `{
                 }
             }
         },
-        "httptransport.CreateUserRequest": {
+        "httptransport.CreateServiceAccountRequest": {
             "type": "object",
             "required": [
-                "email",
+                "audiences",
                 "name"
             ],
             "properties": {
-                "email": {
-                    "type": "string",
-                    "example": "alice@example.com"
+                "audiences": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "name": {
-                    "type": "string",
-                    "example": "Alice"
+                    "type": "string"
                 }
             }
         },
-        "httptransport.DeleteUserRequest": {
+        "httptransport.IdentityResponseBody": {
             "type": "object",
-            "required": [
-                "id",
-                "version"
-            ],
             "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
                 "id": {
-                    "type": "string",
-                    "format": "uuid"
+                    "type": "string"
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
                 },
                 "version": {
                     "type": "integer"
                 }
             }
         },
-        "httptransport.GetUserRequest": {
-            "type": "object",
-            "required": [
-                "id"
-            ],
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "format": "uuid"
-                }
-            }
-        },
-        "httptransport.ListUsersRequest": {
-            "type": "object",
-            "properties": {
-                "page": {
-                    "type": "integer",
-                    "example": 1
-                },
-                "page_size": {
-                    "type": "integer",
-                    "example": 20
-                }
-            }
-        },
         "httptransport.LoginRequest": {
             "type": "object",
             "required": [
-                "client_id",
-                "client_secret"
+                "login",
+                "password"
             ],
             "properties": {
-                "client_id": {
-                    "type": "string",
-                    "example": "local-client"
+                "login": {
+                    "type": "string"
                 },
-                "client_secret": {
-                    "type": "string",
-                    "example": "local-secret"
+                "password": {
+                    "type": "string"
                 }
             }
         },
-        "httptransport.LoginResponseBody": {
+        "httptransport.LogoutRequest": {
             "type": "object",
+            "required": [
+                "session_id"
+            ],
             "properties": {
-                "access_token": {
+                "reason": {
                     "type": "string"
                 },
-                "token_type": {
+                "session_id": {
                     "type": "string"
                 }
             }
@@ -630,6 +669,43 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "subject": {
+                    "type": "string"
+                }
+            }
+        },
+        "httptransport.RefreshRequest": {
+            "type": "object",
+            "required": [
+                "refresh_token"
+            ],
+            "properties": {
+                "refresh_token": {
+                    "type": "string"
+                }
+            }
+        },
+        "httptransport.RegisterIdentityRequest": {
+            "type": "object",
+            "required": [
+                "display_name",
+                "email",
+                "password",
+                "username"
+            ],
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 }
             }
@@ -649,23 +725,36 @@ const docTemplate = `{
                 }
             }
         },
-        "httptransport.UpdateUserRequest": {
+        "httptransport.ServiceAccountTokenRequest": {
             "type": "object",
             "required": [
-                "email",
+                "client_id",
+                "client_secret"
+            ],
+            "properties": {
+                "client_id": {
+                    "type": "string"
+                },
+                "client_secret": {
+                    "type": "string"
+                }
+            }
+        },
+        "httptransport.UpdateIdentityStatusRequest": {
+            "type": "object",
+            "required": [
                 "id",
-                "name",
+                "status",
                 "version"
             ],
             "properties": {
-                "email": {
+                "id": {
                     "type": "string"
                 },
-                "id": {
-                    "type": "string",
-                    "format": "uuid"
+                "reason": {
+                    "type": "string"
                 },
-                "name": {
+                "status": {
                     "type": "string"
                 },
                 "version": {
@@ -673,46 +762,76 @@ const docTemplate = `{
                 }
             }
         },
-        "user.Page": {
+        "httptransport.UpdateServiceAccountStatusRequest": {
+            "type": "object",
+            "required": [
+                "id",
+                "status",
+                "version"
+            ],
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "identity.JWK": {
             "type": "object",
             "properties": {
-                "page": {
-                    "type": "integer"
+                "alg": {
+                    "type": "string"
                 },
-                "page_size": {
-                    "type": "integer"
+                "crv": {
+                    "type": "string"
                 },
-                "total": {
-                    "type": "integer"
+                "kid": {
+                    "type": "string"
                 },
-                "users": {
+                "kty": {
+                    "type": "string"
+                },
+                "use": {
+                    "type": "string"
+                },
+                "x": {
+                    "type": "string"
+                }
+            }
+        },
+        "identity.JWKS": {
+            "type": "object",
+            "properties": {
+                "keys": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/user.User"
+                        "$ref": "#/definitions/identity.JWK"
                     }
                 }
             }
         },
-        "user.User": {
+        "identity.Tokens": {
             "type": "object",
             "properties": {
-                "created_at": {
+                "access_token": {
                     "type": "string"
                 },
-                "email": {
+                "expires_at": {
                     "type": "string"
                 },
-                "id": {
+                "refresh_token": {
                     "type": "string"
                 },
-                "name": {
+                "session_id": {
                     "type": "string"
                 },
-                "updated_at": {
+                "token_type": {
                     "type": "string"
-                },
-                "version": {
-                    "type": "integer"
                 }
             }
         }

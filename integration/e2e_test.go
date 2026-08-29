@@ -16,8 +16,8 @@ import (
 
 	hellov1 "github.com/lihongjie0209/identity-service/gen/hello/v1"
 	"github.com/lihongjie0209/identity-service/internal/app"
-	"github.com/lihongjie0209/identity-service/internal/auth"
 	"github.com/lihongjie0209/identity-service/internal/config"
+	identityv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/identity/v1"
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -71,7 +71,7 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		Health:        config.Health{DatabaseTimeout: 2 * time.Second, RedisTimeout: 2 * time.Second},
 		Observability: config.Observability{MetricsEnabled: true},
 		JWT:           config.JWT{Issuer: "integration", Secret: secret, TTL: time.Hour},
-		Auth:          config.Auth{ClientID: "client", ClientSecret: "secret", SkipHTTPPaths: []string{"/api/v1/version"}, SkipGRPCMethods: []string{"/grpc.health.v1.Health/*"}, PSK: config.PSK{Enabled: true, Key: secret, HTTPPaths: []string{"/api/v1/users/list"}, GRPCMethods: []string{"/hello.v1.HelloService/*"}}},
+		Auth:          config.Auth{SkipHTTPPaths: []string{"/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/version"}, SkipGRPCMethods: []string{"/grpc.health.v1.Health/*"}, PSK: config.PSK{Enabled: true, Key: secret, HTTPPaths: []string{"/api/v1/identities/register"}, GRPCMethods: []string{"/hello.v1.HelloService/*"}}},
 		Cron:          config.Cron{Enabled: false, Timezone: "UTC"},
 		User:          config.User{CacheTTL: time.Minute, LockTTL: 10 * time.Second, LockRetryDelay: 20 * time.Millisecond},
 		Idempotency:   config.Idempotency{Enabled: true, ProcessingTTL: 30 * time.Second, ResultTTL: time.Hour, FailureTTL: time.Minute},
@@ -85,31 +85,26 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		defer stop()
 		_ = application.Stop(stopCtx)
 	})
-	token, err := auth.New(cfg).Issue("client")
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	baseURL := "http://" + httpAddress
 	if status := postJSON(t, baseURL+"/api/v1/version", "", "", `{}`); status != http.StatusOK {
 		t.Fatalf("public version status = %d", status)
 	}
+	registerBody, status := postJSONBody(t, baseURL+"/api/v1/identities/register", "PSK "+secret, "", `{"username":"alice","display_name":"Alice","email":"alice@example.com","password":"correct horse battery staple"}`)
+	if status != http.StatusOK {
+		t.Fatalf("register status=%d body=%s", status, registerBody)
+	}
+	userID := responseUserID(t, registerBody)
+	loginBody, status := postJSONBody(t, baseURL+"/api/v1/auth/login", "", "", `{"login":"alice","password":"correct horse battery staple"}`)
+	if status != http.StatusOK {
+		t.Fatalf("login status=%d body=%s", status, loginBody)
+	}
+	token, refresh := responseTokens(t, loginBody)
 	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+token, "", `{}`); status != http.StatusOK {
 		t.Fatalf("JWT status = %d", status)
 	}
-	if status := postJSON(t, baseURL+"/api/v1/users/list", "", "", `{"page":1}`); status != http.StatusUnauthorized {
-		t.Fatalf("missing PSK status = %d", status)
-	}
-	if status := postJSON(t, baseURL+"/api/v1/users/list", "PSK "+secret, "", `{"page":1}`); status != http.StatusOK {
-		t.Fatalf("PSK status = %d", status)
-	}
-	firstBody, status := postJSONBody(t, baseURL+"/api/v1/users/create", "Bearer "+token, "create-user-0001", `{"name":"Alice","email":"alice@example.com"}`)
+	refreshBody, status := postJSONBody(t, baseURL+"/api/v1/auth/refresh", "", "", `{"refresh_token":"`+refresh+`"}`)
 	if status != http.StatusOK {
-		t.Fatalf("create status = %d body=%s", status, firstBody)
-	}
-	secondBody, status := postJSONBody(t, baseURL+"/api/v1/users/create", "Bearer "+token, "create-user-0001", `{"name":"Alice","email":"alice@example.com"}`)
-	if status != http.StatusOK || responseUserID(t, firstBody) != responseUserID(t, secondBody) {
-		t.Fatalf("idempotent replay status=%d first=%s second=%s", status, firstBody, secondBody)
+		t.Fatalf("refresh status=%d body=%s", status, refreshBody)
 	}
 
 	connection, err := grpc.NewClient(grpcAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -126,8 +121,9 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		t.Fatalf("PSK Ping: %v", err)
 	}
 	jwtCtx := metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
-	if _, err := hellov1.NewUserServiceClient(connection).ListUsers(jwtCtx, &hellov1.ListUsersRequest{Page: 1}); err != nil {
-		t.Fatalf("JWT ListUsers: %v", err)
+	identityResponse, err := identityv1.NewIdentityServiceClient(connection).GetUser(jwtCtx, &identityv1.GetUserRequest{UserId: userID})
+	if err != nil || identityResponse.GetUser().GetUsername() != "alice" {
+		t.Fatalf("JWT GetUser: %v, %v", identityResponse, err)
 	}
 }
 
@@ -142,6 +138,23 @@ func responseUserID(t *testing.T, data []byte) string {
 		t.Fatal(err)
 	}
 	return response.Body.ID
+}
+
+func responseTokens(t *testing.T, data []byte) (string, string) {
+	t.Helper()
+	var response struct {
+		Body struct {
+			AccessToken  string `json:"access_token"`
+			RefreshToken string `json:"refresh_token"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Body.AccessToken == "" || response.Body.RefreshToken == "" {
+		t.Fatalf("missing tokens: %s", data)
+	}
+	return response.Body.AccessToken, response.Body.RefreshToken
 }
 
 func freeAddress(t *testing.T) string {

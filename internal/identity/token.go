@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -20,13 +21,14 @@ type TokenClaims struct {
 }
 
 type TokenIssuer struct {
-	issuer     string
-	audiences  []string
-	keyID      string
-	privateKey ed25519.PrivateKey
-	publicKey  ed25519.PublicKey
-	ttl        time.Duration
-	now        func() time.Time
+	issuer           string
+	audiences        []string
+	keyID            string
+	privateKey       ed25519.PrivateKey
+	publicKey        ed25519.PublicKey
+	verificationKeys map[string]ed25519.PublicKey
+	ttl              time.Duration
+	now              func() time.Time
 }
 
 func NewTokenIssuer(issuer string, audiences []string, keyID string, privateKey ed25519.PrivateKey, ttl time.Duration) (*TokenIssuer, error) {
@@ -34,7 +36,15 @@ func NewTokenIssuer(issuer string, audiences []string, keyID string, privateKey 
 		return nil, errors.New("issuer, audience, key id, Ed25519 private key, and positive ttl are required")
 	}
 	publicKey := privateKey.Public().(ed25519.PublicKey)
-	return &TokenIssuer{issuer: issuer, audiences: audiences, keyID: keyID, privateKey: privateKey, publicKey: publicKey, ttl: ttl, now: time.Now}, nil
+	return &TokenIssuer{issuer: issuer, audiences: audiences, keyID: keyID, privateKey: privateKey, publicKey: publicKey, verificationKeys: map[string]ed25519.PublicKey{keyID: publicKey}, ttl: ttl, now: time.Now}, nil
+}
+
+func (i *TokenIssuer) AddVerificationKey(keyID string, publicKey ed25519.PublicKey) error {
+	if keyID == "" || len(publicKey) != ed25519.PublicKeySize {
+		return errors.New("key id and Ed25519 public key are required")
+	}
+	i.verificationKeys[keyID] = publicKey
+	return nil
 }
 
 func GenerateSigningKey() (ed25519.PrivateKey, error) {
@@ -71,10 +81,12 @@ func (i *TokenIssuer) Issue(subject, subjectType, sessionID, tenantID, membershi
 
 func (i *TokenIssuer) Parse(raw string) (*TokenClaims, error) {
 	token, err := jwt.ParseWithClaims(raw, &TokenClaims{}, func(token *jwt.Token) (any, error) {
-		if token.Method != jwt.SigningMethodEdDSA || token.Header["kid"] != i.keyID {
+		keyID, _ := token.Header["kid"].(string)
+		key, ok := i.verificationKeys[keyID]
+		if token.Method != jwt.SigningMethodEdDSA || !ok {
 			return nil, errors.New("unexpected token signing key or method")
 		}
-		return i.publicKey, nil
+		return key, nil
 	}, jwt.WithIssuer(i.issuer), jwt.WithAudience(i.audiences[0]), jwt.WithExpirationRequired(), jwt.WithIssuedAt(), jwt.WithTimeFunc(i.now))
 	if err != nil {
 		return nil, fmt.Errorf("parse access token: %w", err)
@@ -100,7 +112,17 @@ type JWKS struct {
 }
 
 func (i *TokenIssuer) JWKS() JWKS {
-	return JWKS{Keys: []JWK{{KeyType: "OKP", Use: "sig", KeyID: i.keyID, Curve: "Ed25519", Algorithm: "EdDSA", X: base64.RawURLEncoding.EncodeToString(i.publicKey)}}}
+	keyIDs := make([]string, 0, len(i.verificationKeys))
+	for keyID := range i.verificationKeys {
+		keyIDs = append(keyIDs, keyID)
+	}
+	sort.Strings(keyIDs)
+	keys := make([]JWK, 0, len(keyIDs))
+	for _, keyID := range keyIDs {
+		key := i.verificationKeys[keyID]
+		keys = append(keys, JWK{KeyType: "OKP", Use: "sig", KeyID: keyID, Curve: "Ed25519", Algorithm: "EdDSA", X: base64.RawURLEncoding.EncodeToString(key)})
+	}
+	return JWKS{Keys: keys}
 }
 
 func randomTokenID() (string, error) {

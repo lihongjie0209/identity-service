@@ -11,6 +11,7 @@ import (
 	"github.com/lihongjie0209/identity-service/internal/config"
 	"github.com/lihongjie0209/identity-service/internal/database"
 	"github.com/lihongjie0209/identity-service/internal/idempotency"
+	identitydomain "github.com/lihongjie0209/identity-service/internal/identity"
 	"github.com/lihongjie0209/identity-service/internal/logging"
 	"github.com/lihongjie0209/identity-service/internal/migration"
 	"github.com/lihongjie0209/identity-service/internal/observability"
@@ -18,7 +19,6 @@ import (
 	"github.com/lihongjie0209/identity-service/internal/scheduler"
 	grpctransport "github.com/lihongjie0209/identity-service/internal/transport/grpc"
 	httptransport "github.com/lihongjie0209/identity-service/internal/transport/http"
-	"github.com/lihongjie0209/identity-service/internal/user"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/fx"
@@ -35,7 +35,8 @@ func New(cfg config.Config) *fx.App {
 		DatabaseModule,
 		CacheModule,
 		fx.Provide(idempotency.New),
-		user.Module,
+		identitydomain.Module,
+		EventBusModule,
 		fx.Provide(observability.NewMetrics),
 		outbound.Module,
 		scheduler.Module,
@@ -105,7 +106,7 @@ func newLocker(client *redis.Client) *cache.Locker {
 	return cache.NewLocker(client)
 }
 
-var DatabaseModule = fx.Module("database", fx.Provide(newDatabase), fx.Invoke(func(db *sqlx.DB, logger *slog.Logger) {
+var DatabaseModule = fx.Module("database", fx.Provide(newDatabase, database.NewTransactor), fx.Invoke(func(db *sqlx.DB, logger *slog.Logger) {
 	if db == nil {
 		logger.Warn("database is disabled")
 	}

@@ -50,3 +50,24 @@ func TestTokenIssuerRejectsWrongKey(t *testing.T) {
 		t.Fatal("Parse() error = nil")
 	}
 }
+
+func TestTokenIssuerAcceptsPreviousVerificationKey(t *testing.T) {
+	t.Parallel()
+	oldKey, _ := GenerateSigningKey()
+	newKey, _ := GenerateSigningKey()
+	oldIssuer, _ := NewTokenIssuer("identity-service", []string{"platform-api"}, "key-old", oldKey, time.Minute)
+	newIssuer, _ := NewTokenIssuer("identity-service", []string{"platform-api"}, "key-new", newKey, time.Minute)
+	if err := newIssuer.AddVerificationKey("key-old", oldKey.Public().(ed25519.PublicKey)); err != nil {
+		t.Fatal(err)
+	}
+	raw, _, err := oldIssuer.Issue("user-1", "user", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newIssuer.Parse(raw); err != nil {
+		t.Fatalf("Parse old token after rotation: %v", err)
+	}
+	if got := newIssuer.JWKS(); len(got.Keys) != 2 {
+		t.Fatalf("JWKS keys=%d", len(got.Keys))
+	}
+}

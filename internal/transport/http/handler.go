@@ -8,23 +8,65 @@ import (
 	"github.com/lihongjie0209/identity-service/internal/auth"
 	"github.com/lihongjie0209/identity-service/internal/buildinfo"
 	"github.com/lihongjie0209/identity-service/internal/health"
-	"github.com/lihongjie0209/identity-service/internal/user"
+	identitydomain "github.com/lihongjie0209/identity-service/internal/identity"
 )
 
 type Handler struct {
-	auth   *auth.Service
-	logger *slog.Logger
-	health *health.Service
-	users  *user.Service
+	auth       *auth.Service
+	logger     *slog.Logger
+	health     *health.Service
+	identities *identitydomain.Service
 }
 
-func NewHandler(authService *auth.Service, healthService *health.Service, userService *user.Service, logger *slog.Logger) *Handler {
-	return &Handler{auth: authService, health: healthService, users: userService, logger: logger}
+func NewHandler(authService *auth.Service, healthService *health.Service, identities *identitydomain.Service, logger *slog.Logger) *Handler {
+	return &Handler{auth: authService, health: healthService, identities: identities, logger: logger}
 }
 
 type LoginRequest struct {
-	ClientID     string `json:"client_id" binding:"required" example:"local-client"`
-	ClientSecret string `json:"client_secret" binding:"required" example:"local-secret"`
+	Login    string `json:"login" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+type LogoutRequest struct {
+	SessionID string `json:"session_id" binding:"required"`
+	Reason    string `json:"reason"`
+}
+type RegisterIdentityRequest struct {
+	Username    string `json:"username" binding:"required"`
+	DisplayName string `json:"display_name" binding:"required"`
+	Email       string `json:"email" binding:"required"`
+	Phone       string `json:"phone"`
+	Password    string `json:"password" binding:"required"`
+}
+type CreateServiceAccountRequest struct {
+	Name      string   `json:"name" binding:"required"`
+	Audiences []string `json:"audiences" binding:"required"`
+}
+type UpdateServiceAccountStatusRequest struct {
+	ID      string `json:"id" binding:"required"`
+	Status  string `json:"status" binding:"required"`
+	Version int64  `json:"version" binding:"required"`
+}
+type ServiceAccountTokenRequest struct {
+	ClientID     string `json:"client_id" binding:"required"`
+	ClientSecret string `json:"client_secret" binding:"required"`
+}
+type IdentityResponseBody struct {
+	ID          string `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+	Phone       string `json:"phone"`
+	Status      string `json:"status"`
+	Version     int64  `json:"version"`
+}
+type UpdateIdentityStatusRequest struct {
+	ID      string `json:"id" binding:"required"`
+	Status  string `json:"status" binding:"required"`
+	Reason  string `json:"reason"`
+	Version int64  `json:"version" binding:"required"`
 }
 type LoginResponseBody struct {
 	AccessToken string `json:"access_token"`
@@ -33,35 +75,14 @@ type LoginResponseBody struct {
 type MeResponseBody struct {
 	Subject string `json:"subject"`
 }
-type CreateUserRequest struct {
-	Name  string `json:"name" binding:"required" example:"Alice"`
-	Email string `json:"email" binding:"required" example:"alice@example.com"`
-}
-type GetUserRequest struct {
-	ID string `json:"id" binding:"required" format:"uuid"`
-}
-type ListUsersRequest struct {
-	Page     int `json:"page" example:"1"`
-	PageSize int `json:"page_size" example:"20"`
-}
-type UpdateUserRequest struct {
-	ID      string `json:"id" binding:"required" format:"uuid"`
-	Name    string `json:"name" binding:"required"`
-	Email   string `json:"email" binding:"required"`
-	Version int64  `json:"version" binding:"required"`
-}
-type DeleteUserRequest struct {
-	ID      string `json:"id" binding:"required" format:"uuid"`
-	Version int64  `json:"version" binding:"required"`
-}
 
 // Login godoc
 // @Summary Issue a JWT access token
 // @Tags authentication
 // @Accept json
 // @Produce json
-// @Param request body LoginRequest true "Client credentials"
-// @Success 200 {object} Response{body=LoginResponseBody}
+// @Param request body LoginRequest true "Username/email and password"
+// @Success 200 {object} Response{body=identity.Tokens}
 // @Failure 400 {object} Response "Code 10001: invalid request"
 // @Failure 401 {object} Response "Code 20001: invalid credentials"
 // @Failure 429 {object} Response "Code 10029: rate limited"
@@ -72,16 +93,178 @@ func (h *Handler) Login(c *gin.Context) {
 		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
 		return
 	}
-	if !h.auth.Authenticate(req.ClientID, req.ClientSecret) {
-		Fail(c, h.logger, apperror.Unauthorized("invalid credentials"))
-		return
-	}
-	token, err := h.auth.Issue(req.ClientID)
+	tokens, err := h.identities.Login(c.Request.Context(), req.Login, req.Password)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, gin.H{"access_token": token, "token_type": "Bearer"})
+	OK(c, tokens)
+}
+
+// Refresh godoc
+// @Summary Rotate a refresh token
+// @Tags authentication
+// @Accept json
+// @Produce json
+// @Param request body RefreshRequest true "Refresh token"
+// @Success 200 {object} Response{body=identity.Tokens}
+// @Router /api/v1/auth/refresh [post]
+func (h *Handler) Refresh(c *gin.Context) {
+	var req RefreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	tokens, err := h.identities.Refresh(c.Request.Context(), req.RefreshToken)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, tokens)
+}
+
+// Logout godoc
+// @Summary Revoke the current session
+// @Tags authentication
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body LogoutRequest true "Session"
+// @Success 200 {object} Response
+// @Router /api/v1/auth/logout [post]
+func (h *Handler) Logout(c *gin.Context) {
+	var req LogoutRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	if err := h.identities.Logout(c.Request.Context(), req.SessionID, req.Reason); err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, gin.H{"revoked": true})
+}
+
+// RegisterIdentity godoc
+// @Summary Register a user identity
+// @Tags identities
+// @Security Bearer
+// @Security PSK
+// @Accept json
+// @Produce json
+// @Param request body RegisterIdentityRequest true "Identity"
+// @Success 200 {object} Response{body=IdentityResponseBody}
+// @Router /api/v1/identities/register [post]
+func (h *Handler) RegisterIdentity(c *gin.Context) {
+	var req RegisterIdentityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	created, err := h.identities.Register(c.Request.Context(), req.Username, req.DisplayName, req.Email, req.Phone, req.Password)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, created)
+}
+
+// UpdateIdentityStatus godoc
+// @Summary Update user status with optimistic locking
+// @Tags identities
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body UpdateIdentityStatusRequest true "Status and version"
+// @Success 200 {object} Response{body=IdentityResponseBody}
+// @Router /api/v1/identities/update-status [post]
+func (h *Handler) UpdateIdentityStatus(c *gin.Context) {
+	var req UpdateIdentityStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	updated, err := h.identities.UpdateUserStatus(c.Request.Context(), req.ID, req.Status, req.Reason, req.Version)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, updated)
+}
+
+// JWKS godoc
+// @Summary Return active and grace-period verification keys
+// @Tags authentication
+// @Produce json
+// @Success 200 {object} identity.JWKS
+// @Router /.well-known/jwks.json [get]
+func (h *Handler) JWKS(c *gin.Context) { c.JSON(200, h.identities.JWKS()) }
+
+// CreateServiceAccount godoc
+// @Summary Create a service account and return its secret once
+// @Tags service-accounts
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body CreateServiceAccountRequest true "Service account"
+// @Success 200 {object} Response
+// @Router /api/v1/service-accounts/create [post]
+func (h *Handler) CreateServiceAccount(c *gin.Context) {
+	var req CreateServiceAccountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	account, secret, err := h.identities.CreateServiceAccount(c.Request.Context(), req.Name, req.Audiences)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, gin.H{"account": account, "client_secret": secret})
+}
+
+// UpdateServiceAccountStatus godoc
+// @Summary Enable or disable a service account with optimistic locking
+// @Tags service-accounts
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body UpdateServiceAccountStatusRequest true "Status and version"
+// @Success 200 {object} Response
+// @Router /api/v1/service-accounts/update-status [post]
+func (h *Handler) UpdateServiceAccountStatus(c *gin.Context) {
+	var req UpdateServiceAccountStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	if err := h.identities.UpdateServiceAccountStatus(c.Request.Context(), req.ID, req.Status, req.Version); err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, gin.H{"updated": true})
+}
+
+// ServiceAccountToken godoc
+// @Summary Issue a service-account access token
+// @Tags authentication
+// @Accept json
+// @Produce json
+// @Param request body ServiceAccountTokenRequest true "Client credentials"
+// @Success 200 {object} Response
+// @Router /api/v1/auth/service-token [post]
+func (h *Handler) ServiceAccountToken(c *gin.Context) {
+	var req ServiceAccountTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	token, expiresAt, err := h.identities.ServiceAccountToken(c.Request.Context(), req.ClientID, req.ClientSecret)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, gin.H{"access_token": token, "token_type": "Bearer", "expires_at": expiresAt})
 }
 
 // Live godoc
@@ -128,121 +311,3 @@ func (h *Handler) Me(c *gin.Context) {
 // @Success 200 {object} Response{body=buildinfo.Info}
 // @Router /api/v1/version [post]
 func (h *Handler) Version(c *gin.Context) { OK(c, buildinfo.Current()) }
-
-// CreateUser godoc
-// @Summary Create a user
-// @Tags users
-// @Accept json
-// @Produce json
-// @Security Bearer
-// @Param request body CreateUserRequest true "User"
-// @Success 200 {object} Response{body=user.User}
-// @Failure 400 {object} Response "Code 10001: invalid request"
-// @Failure 409 {object} Response "Code 30009: email already exists"
-// @Router /api/v1/users/create [post]
-func (h *Handler) CreateUser(c *gin.Context) {
-	var req CreateUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
-		return
-	}
-	created, err := h.users.Create(c.Request.Context(), req.Name, req.Email)
-	if err != nil {
-		Fail(c, h.logger, err)
-		return
-	}
-	OK(c, created)
-}
-
-// GetUser godoc
-// @Summary Get a user
-// @Tags users
-// @Accept json
-// @Produce json
-// @Security Bearer
-// @Param request body GetUserRequest true "User ID"
-// @Success 200 {object} Response{body=user.User}
-// @Failure 404 {object} Response "Code 10004: user not found"
-// @Router /api/v1/users/get [post]
-func (h *Handler) GetUser(c *gin.Context) {
-	var req GetUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
-		return
-	}
-	found, err := h.users.Get(c.Request.Context(), req.ID)
-	if err != nil {
-		Fail(c, h.logger, err)
-		return
-	}
-	OK(c, found)
-}
-
-// ListUsers godoc
-// @Summary List users
-// @Tags users
-// @Accept json
-// @Produce json
-// @Security Bearer
-// @Param request body ListUsersRequest true "Pagination"
-// @Success 200 {object} Response{body=user.Page}
-// @Router /api/v1/users/list [post]
-func (h *Handler) ListUsers(c *gin.Context) {
-	var req ListUsersRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
-		return
-	}
-	page, err := h.users.List(c.Request.Context(), req.Page, req.PageSize)
-	if err != nil {
-		Fail(c, h.logger, err)
-		return
-	}
-	OK(c, page)
-}
-
-// UpdateUser godoc
-// @Summary Update a user using optimistic locking
-// @Tags users
-// @Accept json
-// @Produce json
-// @Security Bearer
-// @Param request body UpdateUserRequest true "User and current version"
-// @Success 200 {object} Response{body=user.User}
-// @Failure 409 {object} Response "Code 30009: version conflict"
-// @Router /api/v1/users/update [post]
-func (h *Handler) UpdateUser(c *gin.Context) {
-	var req UpdateUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
-		return
-	}
-	updated, err := h.users.Update(c.Request.Context(), req.ID, req.Name, req.Email, req.Version)
-	if err != nil {
-		Fail(c, h.logger, err)
-		return
-	}
-	OK(c, updated)
-}
-
-// DeleteUser godoc
-// @Summary Delete a user using optimistic locking
-// @Tags users
-// @Accept json
-// @Produce json
-// @Security Bearer
-// @Param request body DeleteUserRequest true "User ID and current version"
-// @Success 200 {object} Response
-// @Router /api/v1/users/delete [post]
-func (h *Handler) DeleteUser(c *gin.Context) {
-	var req DeleteUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
-		return
-	}
-	if err := h.users.Delete(c.Request.Context(), req.ID, req.Version); err != nil {
-		Fail(c, h.logger, err)
-		return
-	}
-	OK(c, gin.H{"deleted": true})
-}

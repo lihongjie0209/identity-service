@@ -18,6 +18,7 @@ import (
 	"github.com/lihongjie0209/identity-service/internal/observability"
 	appLimit "github.com/lihongjie0209/identity-service/internal/ratelimit"
 	"github.com/lihongjie0209/identity-service/internal/requestid"
+	"github.com/lihongjie0209/microservice-platform-go/principal"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -223,22 +224,18 @@ func JWT(service *auth.Service, logger *slog.Logger) gin.HandlerFunc {
 }
 
 func Authentication(service *auth.Service, logger *slog.Logger, cfg config.Auth) gin.HandlerFunc {
-	authenticate := JWT(service, logger)
+	policy := service.Policy(cfg)
 	return func(c *gin.Context) {
-		if cfg.PSK.Enabled && auth.MatchesAny(c.FullPath(), cfg.PSK.HTTPPaths) {
-			if !auth.VerifyPSK(c.GetHeader("Authorization"), cfg.PSK.Key) {
-				Fail(c, logger, apperror.Unauthorized("missing or invalid PSK"))
-				return
-			}
-			c.Set("subject", "psk")
-			c.Next()
+		ctx, err := policy.Authenticate(c.Request.Context(), c.FullPath(), c.GetHeader("Authorization"))
+		if err != nil {
+			Fail(c, logger, apperror.Unauthorized("missing or invalid credential"))
 			return
 		}
-		if auth.MatchesAny(c.FullPath(), cfg.SkipHTTPPaths) {
-			c.Next()
-			return
+		c.Request = c.Request.WithContext(ctx)
+		if identity, ok := principal.FromContext(ctx); ok {
+			c.Set("subject", identity.ID)
 		}
-		authenticate(c)
+		c.Next()
 	}
 }
 

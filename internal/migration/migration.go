@@ -120,9 +120,20 @@ func ensureSchema(cfg config.Migration, databaseURL string) error {
 	if err != nil {
 		return fmt.Errorf("open database to create schema: %w", err)
 	}
-	defer db.Close()
-	if _, err := db.Exec(`CREATE SCHEMA IF NOT EXISTS "` + cfg.Schema + `"`); err != nil {
+	defer func() { _ = db.Close() }()
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin schema creation: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtext($1))`, "platform-schema:"+cfg.Schema); err != nil {
+		return fmt.Errorf("lock migration schema %q: %w", cfg.Schema, err)
+	}
+	if _, err := tx.Exec(`CREATE SCHEMA IF NOT EXISTS "` + cfg.Schema + `"`); err != nil {
 		return fmt.Errorf("create migration schema %q: %w", cfg.Schema, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration schema %q: %w", cfg.Schema, err)
 	}
 	return nil
 }

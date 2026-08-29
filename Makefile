@@ -1,4 +1,4 @@
-.PHONY: run build docker-build test test-race test-integration lint fmt proto proto-lint proto-breaking proto-check swagger swagger-check migrate-up migrate-down dev-up dev-down dev-logs
+.PHONY: run build clean docker-build test test-race test-integration lint fmt proto proto-lint proto-breaking proto-check swagger swagger-check migrate-up migrate-down dev-up dev-down dev-logs
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
@@ -12,6 +12,9 @@ run:
 build:
 	go build -ldflags="$(LDFLAGS)" -o bin/api ./cmd/api
 	go build -trimpath -o bin/migrate ./cmd/migrate
+
+clean:
+	rm -rf bin
 
 docker-build:
 	docker build \
@@ -48,8 +51,8 @@ fmt:
 swagger:
 	go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g cmd/api/main.go -o docs --parseInternal
 
-swagger-check: swagger
-	git diff --exit-code -- docs
+swagger-check:
+	@tmp_dir=$$(mktemp -d); trap 'rm -rf "$$tmp_dir"' EXIT; cp -R docs "$$tmp_dir/docs"; $(MAKE) swagger; diff -ru "$$tmp_dir/docs" docs
 
 proto:
 	buf generate

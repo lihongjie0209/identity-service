@@ -39,6 +39,7 @@ func NewServer(lc fx.Lifecycle, cfg config.Config, handler *Handler, authService
 		router.Handle(method, "/live", handler.Live)
 		router.Handle(method, "/ready", handler.Ready)
 	}
+	router.GET("/.well-known/jwks.json", handler.JWKS)
 	if metrics.Enabled() {
 		router.GET("/metrics", gin.WrapH(metrics.Handler()))
 	}
@@ -59,13 +60,15 @@ func NewServer(lc fx.Lifecycle, cfg config.Config, handler *Handler, authService
 		return subject
 	}, logger))
 	api.POST("/auth/login", RateLimit(limiter, cfg.RateLimit.Login, "login", func(c *gin.Context) string { return c.ClientIP() }, logger), handler.Login)
+	api.POST("/auth/refresh", RateLimit(limiter, cfg.RateLimit.Login, "refresh", func(c *gin.Context) string { return c.ClientIP() }, logger), handler.Refresh)
+	api.POST("/auth/logout", handler.Logout)
+	api.POST("/auth/service-token", RateLimit(limiter, cfg.RateLimit.Login, "service-login", func(c *gin.Context) string { return c.ClientIP() }, logger), handler.ServiceAccountToken)
+	api.POST("/identities/register", handler.RegisterIdentity)
+	api.POST("/identities/update-status", handler.UpdateIdentityStatus)
+	api.POST("/service-accounts/create", handler.CreateServiceAccount)
+	api.POST("/service-accounts/update-status", handler.UpdateServiceAccountStatus)
 	api.POST("/version", handler.Version)
 	api.POST("/me", handler.Me)
-	api.POST("/users/create", handler.CreateUser)
-	api.POST("/users/get", handler.GetUser)
-	api.POST("/users/list", handler.ListUsers)
-	api.POST("/users/update", handler.UpdateUser)
-	api.POST("/users/delete", handler.DeleteUser)
 	server := &http.Server{Addr: cfg.HTTP.Address, Handler: router, ReadTimeout: cfg.HTTP.ReadTimeout, WriteTimeout: cfg.HTTP.WriteTimeout, IdleTimeout: cfg.HTTP.IdleTimeout}
 	var listener net.Listener
 	lc.Append(fx.Hook{OnStart: func(context.Context) error {
@@ -108,4 +111,4 @@ func registerPprof(group *gin.RouterGroup) {
 	}
 }
 
-var Module = fx.Module("http", fx.Provide(auth.New, health.New, ratelimit.New, NewHandler, NewServer), fx.Invoke(func(*http.Server) {}))
+var Module = fx.Module("http", fx.Provide(auth.NewWithIdentity, health.New, ratelimit.New, NewHandler, NewServer), fx.Invoke(func(*http.Server) {}))

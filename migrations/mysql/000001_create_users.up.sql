@@ -5,5 +5,7 @@ CREATE TABLE users (
     version BIGINT NOT NULL DEFAULT 1,
     created_at DATETIME(6) NOT NULL,
     updated_at DATETIME(6) NOT NULL,
+    created_by VARCHAR(255) NOT NULL DEFAULT 'system',
+    updated_by VARCHAR(255) NOT NULL DEFAULT 'system',
     INDEX idx_users_created_at (created_at DESC, id DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

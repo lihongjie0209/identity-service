@@ -78,11 +78,14 @@ jwt:
   issuer: identity-service
   secret: ""
   ttl: 2h
+  key_id: identity-current
+  # Map old kid -> old secret during the verification grace period.
+  previous_secrets: {}
 auth:
   client_id: ""
   client_secret: ""
   # Supports path.Match wildcards; '*' never crosses '/'.
-  skip_http_paths: [/api/v1/auth/login, /api/v1/version]
+  skip_http_paths: [/api/v1/auth/login, /api/v1/auth/refresh, /api/v1/auth/service-token, /api/v1/version]
   skip_grpc_methods:
     - /grpc.health.v1.Health/*
   psk:
@@ -112,6 +115,20 @@ idempotency:
   processing_ttl: 30s
   result_ttl: 24h
   failure_ttl: 5m
+
+event_bus:
+  enabled: false
+  urls: [nats://127.0.0.1:4222]
+  stream_name: PLATFORM_EVENTS
+  storage: file
+  max_age: 168h
+  duplicate_window: 10m
+  connect_timeout: 5s
+  publish_timeout: 5s
+  dispatch_interval: 1s
+  dispatch_batch_size: 100
+  dispatch_lease: 30s
+  dispatch_retry_delay: 5s
 
 # Named outbound clients. Put environment-specific endpoints and credentials in
 # config-{env}.yaml or APP_ variables.

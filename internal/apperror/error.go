@@ -1,6 +1,10 @@
 package apperror
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/lihongjie0209/microservice-platform-go/errorcode"
+)
 
 type Error struct {
 	Code       int    `json:"code"`
@@ -18,17 +22,18 @@ func (e *Error) Error() string {
 func (e *Error) Unwrap() error { return e.Err }
 
 const (
-	CodeOK                    = 0
-	CodeInvalidArgument       = 10001
-	CodeNotFound              = 10004
-	CodeRequestTimeout        = 10008
-	CodeTooManyRequests       = 10029
-	CodeUnauthorized          = 20001
-	CodeForbidden             = 20003
-	CodeConflict              = 30009
-	CodeRequestInProgress     = 30010
-	CodeInternal              = 50000
-	CodeDependencyUnavailable = 50003
+	CodeOK                    = int(errorcode.OK)
+	CodeInvalidArgument       = int(errorcode.InvalidArgument)
+	CodeNotFound              = int(errorcode.NotFound)
+	CodeRequestTimeout        = int(errorcode.RequestTimeout)
+	CodeTooManyRequests       = int(errorcode.TooManyRequests)
+	CodeUnauthorized          = int(errorcode.Unauthorized)
+	CodeForbidden             = int(errorcode.Forbidden)
+	CodeConflict              = int(errorcode.Conflict)
+	CodeRequestInProgress     = int(errorcode.RequestInProgress)
+	CodeStaleVersion          = int(errorcode.StaleVersion)
+	CodeInternal              = int(errorcode.Internal)
+	CodeDependencyUnavailable = int(errorcode.DependencyUnavailable)
 )
 
 func New(code int, message string, status int, err error) *Error {
@@ -42,6 +47,9 @@ func NotFound(message string) *Error {
 }
 func Conflict(message string, err error) *Error {
 	return New(CodeConflict, message, http.StatusConflict, err)
+}
+func StaleVersion(err error) *Error {
+	return New(CodeStaleVersion, "resource version is stale", http.StatusConflict, err)
 }
 func RequestInProgress() *Error {
 	return New(CodeRequestInProgress, "request is already processing", http.StatusConflict, nil)

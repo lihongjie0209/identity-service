@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -10,6 +11,9 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/lihongjie0209/identity-service/internal/config"
+	identitydomain "github.com/lihongjie0209/identity-service/internal/identity"
+	"github.com/lihongjie0209/microservice-platform-go/authn"
+	"github.com/lihongjie0209/microservice-platform-go/principal"
 )
 
 type Claims struct{ jwt.RegisteredClaims }
@@ -19,10 +23,56 @@ type Service struct {
 	ttl          time.Duration
 	clientID     string
 	clientSecret string
+	identities   *identitydomain.Service
+}
+
+func (s *Service) VerifyBearer(_ context.Context, raw string) (principal.Principal, error) {
+	if s.identities != nil {
+		claims, err := s.identities.Parse(raw)
+		if err != nil {
+			return principal.Principal{}, err
+		}
+		return principal.Principal{ID: claims.Subject, Type: principal.Type(claims.SubjectType), TenantID: claims.TenantID, MembershipID: claims.MembershipID, SessionID: claims.SessionID}, nil
+	}
+	claims, err := s.Parse(raw)
+	if err != nil {
+		return principal.Principal{}, err
+	}
+	return principal.Principal{ID: claims.Subject, Type: principal.TypeServiceAccount}, nil
+}
+
+func (s *Service) Policy(cfg config.Auth) authn.Policy {
+	policy := authn.Policy{SkipTargets: cfg.SkipHTTPPaths, Bearer: s}
+	if cfg.PSK.Enabled {
+		policy.PSK = []authn.PSKPolicy{{
+			Key:       cfg.PSK.Key,
+			Targets:   cfg.PSK.HTTPPaths,
+			Principal: principal.Principal{ID: "psk", Type: principal.TypeServiceAccount},
+		}}
+	}
+	return policy
+}
+
+func (s *Service) GRPCPolicy(cfg config.Auth) authn.Policy {
+	policy := authn.Policy{SkipTargets: cfg.SkipGRPCMethods, Bearer: s}
+	if cfg.PSK.Enabled {
+		policy.PSK = []authn.PSKPolicy{{
+			Key:       cfg.PSK.Key,
+			Targets:   cfg.PSK.GRPCMethods,
+			Principal: principal.Principal{ID: "psk", Type: principal.TypeServiceAccount},
+		}}
+	}
+	return policy
 }
 
 func New(cfg config.Config) *Service {
 	return &Service{issuer: cfg.JWT.Issuer, secret: []byte(cfg.JWT.Secret), ttl: cfg.JWT.TTL, clientID: cfg.Auth.ClientID, clientSecret: cfg.Auth.ClientSecret}
+}
+
+func NewWithIdentity(cfg config.Config, identities *identitydomain.Service) *Service {
+	service := New(cfg)
+	service.identities = identities
+	return service
 }
 
 func (s *Service) Enabled() bool {

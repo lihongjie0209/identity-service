@@ -4,19 +4,17 @@ package integration
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
 	"github.com/lihongjie0209/identity-service/internal/config"
 	appdb "github.com/lihongjie0209/identity-service/internal/database"
+	identitydomain "github.com/lihongjie0209/identity-service/internal/identity"
 	"github.com/lihongjie0209/identity-service/internal/migration"
-	"github.com/lihongjie0209/identity-service/internal/user"
+	"github.com/lihongjie0209/microservice-platform-go/principal"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mysql"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -59,34 +57,36 @@ func TestRepositoryAndMigrations(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = db.Close() })
-			repository := user.NewRepository(db)
+			repository := identitydomain.NewRepository(db)
 			transactor := appdb.NewTransactor(db)
-			now := time.Now().UTC().Truncate(time.Microsecond)
-			created := user.User{ID: uuid.NewString(), Name: "Alice", Email: "alice-" + databaseType + "@example.com", Version: 1, CreatedAt: now, UpdatedAt: now}
-			if err := transactor.Within(ctx, nil, func(tx *sqlx.Tx) error { return repository.Create(ctx, tx, created) }); err != nil {
-				t.Fatalf("create: %v", err)
+			service, err := identitydomain.NewService(repository, transactor, config.Config{App: config.App{Name: "identity-service"}, JWT: config.JWT{Issuer: "integration", Secret: "01234567890123456789012345678901", KeyID: "integration-key", TTL: time.Hour}})
+			if err != nil {
+				t.Fatal(err)
 			}
-			found, err := repository.Get(ctx, created.ID)
-			if err != nil || found.Email != created.Email {
-				t.Fatalf("get = %+v, %v", found, err)
+			adminCtx := principal.WithContext(ctx, principal.Principal{ID: "admin-1", Type: principal.TypeUser})
+			created, err := service.Register(adminCtx, "alice_"+databaseType, "Alice", "alice-"+databaseType+"@example.com", "", "correct horse battery staple")
+			if err != nil {
+				t.Fatalf("register: %v", err)
 			}
-			items, total, err := repository.List(ctx, 10, 0)
-			if err != nil || total != 1 || len(items) != 1 {
-				t.Fatalf("list total=%d len=%d err=%v", total, len(items), err)
+			tokens, err := service.Login(ctx, created.Username, "correct horse battery staple")
+			if err != nil {
+				t.Fatalf("login: %v", err)
 			}
-			found.Name, found.Version, found.UpdatedAt = "Alice Updated", 1, now.Add(time.Second)
-			if err := repository.Update(ctx, found); err != nil {
-				t.Fatalf("update: %v", err)
+			rotated, err := service.Refresh(ctx, tokens.RefreshToken)
+			if err != nil || rotated.RefreshToken == tokens.RefreshToken {
+				t.Fatalf("refresh=%+v err=%v", rotated, err)
 			}
-			updated, err := repository.Get(ctx, created.ID)
-			if err != nil || updated.Version != 2 {
-				t.Fatalf("updated = %+v, %v", updated, err)
+			account, secret, err := service.CreateServiceAccount(adminCtx, "reporting", []string{"reporting-api"})
+			if err != nil || secret == "" {
+				t.Fatalf("service account=%+v err=%v", account, err)
 			}
-			if err := repository.Delete(ctx, updated.ID, updated.Version); err != nil {
-				t.Fatalf("delete: %v", err)
+			serviceToken, _, err := service.ServiceAccountToken(ctx, account.ClientID, secret)
+			if err != nil || serviceToken == "" {
+				t.Fatalf("service token error=%v", err)
 			}
-			if _, err := repository.Get(ctx, updated.ID); !errors.Is(err, user.ErrNotFound) {
-				t.Fatalf("get deleted error = %v", err)
+			var outboxCount int
+			if err := db.GetContext(ctx, &outboxCount, "SELECT COUNT(*) FROM outbox_events"); err != nil || outboxCount != 2 {
+				t.Fatalf("outbox count=%d err=%v", outboxCount, err)
 			}
 			if err := db.Close(); err != nil {
 				t.Fatal(err)
