@@ -633,7 +633,7 @@ const file_hello_v1_hello_proto_rawDesc = "" +
 	"\n" +
 	"UpdateUser\x12\x1b.hello.v1.UpdateUserRequest\x1a\x0e.hello.v1.User\x12G\n" +
 	"\n" +
-	"DeleteUser\x12\x1b.hello.v1.DeleteUserRequest\x1a\x1c.hello.v1.DeleteUserResponseB?Z=github.com/lihongjie0209/go-api-template/gen/hello/v1;hellov1b\x06proto3"
+	"DeleteUser\x12\x1b.hello.v1.DeleteUserRequest\x1a\x1c.hello.v1.DeleteUserResponseB@Z>github.com/lihongjie0209/identity-service/gen/hello/v1;hellov1b\x06proto3"
 
 var (
 	file_hello_v1_hello_proto_rawDescOnce sync.Once
