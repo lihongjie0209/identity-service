@@ -140,6 +140,7 @@ type Swagger struct {
 }
 type JWT struct {
 	Issuer          string            `mapstructure:"issuer"`
+	Audiences       []string          `mapstructure:"audiences"`
 	Secret          string            `mapstructure:"secret"`
 	TTL             time.Duration     `mapstructure:"ttl"`
 	KeyID           string            `mapstructure:"key_id"`
@@ -367,6 +368,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("swagger.enabled", true)
 	v.SetDefault("swagger.require_auth", false)
 	v.SetDefault("jwt.issuer", "identity-service")
+	v.SetDefault("jwt.audiences", []string{"identity-service", "tenant-service", "authorization-service", "audit-service", "config-service", "notification-service", "file-service"})
 	v.SetDefault("jwt.secret", "")
 	v.SetDefault("jwt.ttl", "2h")
 	v.SetDefault("jwt.key_id", "identity-current")

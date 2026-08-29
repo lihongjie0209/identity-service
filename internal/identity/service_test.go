@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"regexp"
+	"slices"
 	"testing"
 	"time"
 
@@ -41,6 +42,32 @@ func TestServiceRegisterPersistsAuditActorInOneTransaction(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestServiceIssuesTokenForConfiguredServiceAudiences(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	audiences := []string{"identity-service", "tenant-service", "authorization-service"}
+	service, err := NewService(NewRepository(sqlx.NewDb(db, "sqlmock")), &database.Transactor{}, config.Config{App: config.App{Name: "identity-service"}, JWT: config.JWT{Issuer: "identity-service", Audiences: audiences, Secret: "01234567890123456789012345678901", TTL: time.Hour}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _, err := service.issuer.Issue("user-1", "user", "session-1", "tenant-1", "membership-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := service.issuer.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, audience := range audiences {
+		if !slices.Contains(claims.Audience, audience) {
+			t.Fatalf("token audiences %v do not contain %q", claims.Audience, audience)
+		}
 	}
 }
 

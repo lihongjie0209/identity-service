@@ -48,7 +48,11 @@ func NewService(repository *Repository, transactor *database.Transactor, cfg con
 	if keyID == "" {
 		keyID = "identity-current"
 	}
-	issuer, err := NewTokenIssuer(cfg.JWT.Issuer, []string{cfg.App.Name}, keyID, ed25519.NewKeyFromSeed(seed[:]), cfg.JWT.TTL)
+	audiences := cfg.JWT.Audiences
+	if len(audiences) == 0 {
+		audiences = []string{cfg.App.Name}
+	}
+	issuer, err := NewTokenIssuer(cfg.JWT.Issuer, audiences, keyID, ed25519.NewKeyFromSeed(seed[:]), cfg.JWT.TTL)
 	if err != nil {
 		return nil, err
 	}
