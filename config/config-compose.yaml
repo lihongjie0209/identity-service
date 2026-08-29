@@ -15,3 +15,15 @@ cron:
 event_bus:
   enabled: true
   urls: [nats://nats:4222]
+auth:
+  # Local/system-test bootstrap only. Production registration is an
+  # administrator-controlled operation.
+  skip_http_paths:
+    - /api/v1/auth/login
+    - /api/v1/auth/refresh
+    - /api/v1/auth/service-token
+    - /api/v1/version
+  psk:
+    enabled: true
+    key: local-system-test-psk-00000000000000000000
+    http_paths: [/api/v1/identities/register]
