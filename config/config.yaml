@@ -76,7 +76,7 @@ swagger:
   require_auth: false
 jwt:
   issuer: identity-service
-  audiences: [identity-service, tenant-service, authorization-service, audit-service, config-service, notification-service, file-service]
+  audiences: [identity-service, tenant-service, authorization-service, audit-service, config-service, notification-service, file-service, scheduler-service]
   secret: ""
   ttl: 2h
   key_id: identity-current
