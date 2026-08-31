@@ -268,6 +268,86 @@ func (s *Service) ValidateSession(ctx context.Context, id, userID string) (Sessi
 	}
 	return session, session.RevokedAt == nil && session.ExpiresAt.After(s.now().UTC()), nil
 }
+func (s *Service) ListSessions(
+	ctx context.Context,
+	userID string,
+	tenantID string,
+	status string,
+	page int,
+	pageSize int,
+) (Page[Session], error) {
+	if status != "" && status != "active" && status != "revoked" && status != "expired" {
+		return Page[Session]{}, apperror.Invalid("invalid session status", nil)
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	items, total, err := s.repository.ListSessions(
+		ctx,
+		strings.TrimSpace(userID),
+		strings.TrimSpace(tenantID),
+		status,
+		s.now().UTC(),
+		pageSize,
+		(page-1)*pageSize,
+	)
+	if err != nil {
+		return Page[Session]{}, translateIdentityError(err)
+	}
+	return Page[Session]{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
+}
+func (s *Service) RevokeSessionByID(ctx context.Context, id, reason string, version int64) (Session, error) {
+	actor, err := principal.Require(ctx)
+	if err != nil {
+		return Session{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	current, err := s.repository.GetSessionByID(ctx, strings.TrimSpace(id))
+	if err != nil {
+		return Session{}, translateIdentityError(err)
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "administrative revocation"
+	}
+	now := s.now().UTC()
+	event, err := newOutboxEvent(
+		ctx,
+		"platform.identity.session.revoked.v1",
+		"platform.identity.v1.SessionRevoked",
+		current.ID,
+		now,
+		&identityv1.SessionRevokedEvent{
+			SessionId: current.ID,
+			UserId:    current.UserID,
+			TenantId:  current.TenantID,
+			Reason:    reason,
+		},
+	)
+	if err != nil {
+		return Session{}, apperror.Internal(err)
+	}
+	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+		if err := s.repository.RevokeSessionByID(
+			ctx,
+			tx,
+			current.ID,
+			reason,
+			actor.ID,
+			version,
+			now,
+		); err != nil {
+			return err
+		}
+		return s.repository.InsertOutbox(ctx, tx, event)
+	})
+	if err != nil {
+		return Session{}, translateIdentityError(err)
+	}
+	return s.repository.GetSessionByID(ctx, current.ID)
+}
 func (s *Service) RevokeTenantSessions(ctx context.Context, userID, tenantID, reason string) (uint64, error) {
 	actor, err := principal.Require(ctx)
 	if err != nil {

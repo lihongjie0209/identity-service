@@ -531,6 +531,112 @@
                 }
             }
         },
+        "/api/v1/sessions/list": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "List user sessions for security administration",
+                "parameters": [
+                    {
+                        "description": "Filters and pagination",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.ListSessionsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/httptransport.SessionPageResponseBody"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/revoke": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Administratively revoke a session with optimistic locking",
+                "parameters": [
+                    {
+                        "description": "Session, reason, and expected version",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.RevokeSessionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/httptransport.SessionResponseBody"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "409": {
+                        "description": "Code 30009: stale resource version",
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/version": {
             "post": {
                 "produces": [
@@ -778,6 +884,26 @@
                 }
             }
         },
+        "httptransport.ListSessionsRequest": {
+            "type": "object",
+            "properties": {
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
         "httptransport.LoginRequest": {
             "type": "object",
             "required": [
@@ -867,6 +993,25 @@
                 }
             }
         },
+        "httptransport.RevokeSessionRequest": {
+            "type": "object",
+            "required": [
+                "reason",
+                "session_id",
+                "version"
+            ],
+            "properties": {
+                "reason": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
         "httptransport.ServiceAccountPageResponseBody": {
             "type": "object",
             "properties": {
@@ -937,6 +1082,73 @@
                 },
                 "client_secret": {
                     "type": "string"
+                }
+            }
+        },
+        "httptransport.SessionPageResponseBody": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/httptransport.SessionResponseBody"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "httptransport.SessionResponseBody": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "last_used_at": {
+                    "type": "string"
+                },
+                "membership_id": {
+                    "type": "string"
+                },
+                "revoke_reason": {
+                    "type": "string"
+                },
+                "revoked_at": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
                 }
             }
         },

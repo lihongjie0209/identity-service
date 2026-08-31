@@ -76,6 +76,19 @@ func TestRepositoryAndMigrations(t *testing.T) {
 			if err != nil || rotated.RefreshToken == tokens.RefreshToken {
 				t.Fatalf("refresh=%+v err=%v", rotated, err)
 			}
+			sessionPage, err := service.ListSessions(ctx, created.ID, "", "active", 1, 20)
+			if err != nil || sessionPage.Total != 1 || len(sessionPage.Items) != 1 {
+				t.Fatalf("session page=%+v err=%v", sessionPage, err)
+			}
+			revokedSession, err := service.RevokeSessionByID(
+				adminCtx,
+				sessionPage.Items[0].ID,
+				"integration security test",
+				sessionPage.Items[0].Version,
+			)
+			if err != nil || revokedSession.RevokedAt == nil || revokedSession.Version != sessionPage.Items[0].Version+1 {
+				t.Fatalf("revoked session=%+v err=%v", revokedSession, err)
+			}
 			account, secret, err := service.CreateServiceAccount(adminCtx, "reporting", []string{"reporting-api"})
 			if err != nil || secret == "" {
 				t.Fatalf("service account=%+v err=%v", account, err)
@@ -92,7 +105,7 @@ func TestRepositoryAndMigrations(t *testing.T) {
 				t.Fatalf("service token error=%v", err)
 			}
 			var outboxCount int
-			if err := db.GetContext(ctx, &outboxCount, "SELECT COUNT(*) FROM outbox_events"); err != nil || outboxCount != 2 {
+			if err := db.GetContext(ctx, &outboxCount, "SELECT COUNT(*) FROM outbox_events"); err != nil || outboxCount != 3 {
 				t.Fatalf("outbox count=%d err=%v", outboxCount, err)
 			}
 			if err := db.Close(); err != nil {

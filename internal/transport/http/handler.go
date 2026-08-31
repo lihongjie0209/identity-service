@@ -34,6 +34,40 @@ type LogoutRequest struct {
 	SessionID string `json:"session_id" binding:"required"`
 	Reason    string `json:"reason"`
 }
+type ListSessionsRequest struct {
+	UserID   string `json:"user_id"`
+	TenantID string `json:"tenant_id"`
+	Status   string `json:"status"`
+	Page     int    `json:"page"`
+	PageSize int    `json:"page_size"`
+}
+type RevokeSessionRequest struct {
+	SessionID string `json:"session_id" binding:"required"`
+	Reason    string `json:"reason" binding:"required"`
+	Version   int64  `json:"version" binding:"required"`
+}
+type SessionResponseBody struct {
+	SessionID    string     `json:"session_id"`
+	UserID       string     `json:"user_id"`
+	TenantID     string     `json:"tenant_id"`
+	MembershipID string     `json:"membership_id"`
+	Status       string     `json:"status"`
+	ExpiresAt    time.Time  `json:"expires_at"`
+	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
+	RevokeReason string     `json:"revoke_reason,omitempty"`
+	LastUsedAt   time.Time  `json:"last_used_at"`
+	Version      int64      `json:"version"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	CreatedBy    string     `json:"created_by"`
+	UpdatedBy    string     `json:"updated_by"`
+}
+type SessionPageResponseBody struct {
+	Items    []SessionResponseBody `json:"items"`
+	Total    int64                 `json:"total"`
+	Page     int                   `json:"page"`
+	PageSize int                   `json:"page_size"`
+}
 type RegisterIdentityRequest struct {
 	Username    string `json:"username" binding:"required"`
 	DisplayName string `json:"display_name" binding:"required"`
@@ -178,6 +212,75 @@ func (h *Handler) Logout(c *gin.Context) {
 		return
 	}
 	OK(c, gin.H{"revoked": true})
+}
+
+// ListSessions godoc
+// @Summary List user sessions for security administration
+// @Tags sessions
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body ListSessionsRequest true "Filters and pagination"
+// @Success 200 {object} Response{body=SessionPageResponseBody}
+// @Router /api/v1/sessions/list [post]
+func (h *Handler) ListSessions(c *gin.Context) {
+	var req ListSessionsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	page, err := h.identities.ListSessions(
+		c.Request.Context(),
+		req.UserID,
+		req.TenantID,
+		req.Status,
+		req.Page,
+		req.PageSize,
+	)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	now := time.Now().UTC()
+	items := make([]SessionResponseBody, 0, len(page.Items))
+	for _, session := range page.Items {
+		items = append(items, sessionResponse(session, now))
+	}
+	OK(c, SessionPageResponseBody{
+		Items:    items,
+		Total:    page.Total,
+		Page:     page.Page,
+		PageSize: page.PageSize,
+	})
+}
+
+// RevokeSession godoc
+// @Summary Administratively revoke a session with optimistic locking
+// @Tags sessions
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body RevokeSessionRequest true "Session, reason, and expected version"
+// @Success 200 {object} Response{body=SessionResponseBody}
+// @Failure 409 {object} Response "Code 30009: stale resource version"
+// @Router /api/v1/sessions/revoke [post]
+func (h *Handler) RevokeSession(c *gin.Context) {
+	var req RevokeSessionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	session, err := h.identities.RevokeSessionByID(
+		c.Request.Context(),
+		req.SessionID,
+		req.Reason,
+		req.Version,
+	)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, sessionResponse(session, time.Now().UTC()))
 }
 
 // RegisterIdentity godoc
@@ -423,5 +526,30 @@ func serviceAccountResponse(account identitydomain.ServiceAccount) ServiceAccoun
 		UpdatedAt: account.UpdatedAt,
 		CreatedBy: account.CreatedBy,
 		UpdatedBy: account.UpdatedBy,
+	}
+}
+
+func sessionResponse(session identitydomain.Session, now time.Time) SessionResponseBody {
+	status := "active"
+	if session.RevokedAt != nil {
+		status = "revoked"
+	} else if !session.ExpiresAt.After(now) {
+		status = "expired"
+	}
+	return SessionResponseBody{
+		SessionID:    session.ID,
+		UserID:       session.UserID,
+		TenantID:     session.TenantID,
+		MembershipID: session.MembershipID,
+		Status:       status,
+		ExpiresAt:    session.ExpiresAt,
+		RevokedAt:    session.RevokedAt,
+		RevokeReason: session.RevokeReason,
+		LastUsedAt:   session.LastUsedAt,
+		Version:      session.Version,
+		CreatedAt:    session.CreatedAt,
+		UpdatedAt:    session.UpdatedAt,
+		CreatedBy:    session.CreatedBy,
+		UpdatedBy:    session.UpdatedBy,
 	}
 }

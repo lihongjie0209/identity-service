@@ -23,6 +23,7 @@ func NewRepository(db *sqlx.DB) *Repository { return &Repository{db: db} }
 
 const userColumns = "id, username, name, email, phone, status, failed_login_count, locked_until, version, created_at, updated_at, created_by, updated_by"
 const serviceAccountColumns = "id, client_id, name, secret_hash, status, audiences_json, version, created_at, updated_at, created_by, updated_by"
+const sessionColumns = "id, user_id, refresh_token_hash, tenant_id, membership_id, expires_at, revoked_at, revoke_reason, version, created_at, updated_at, created_by, updated_by, last_used_at"
 
 func (r *Repository) CreateUser(ctx context.Context, tx *sqlx.Tx, user User, credential Credential) error {
 	userQuery := r.db.Rebind("INSERT INTO users (id, username, name, email, phone, status, failed_login_count, version, created_at, updated_at, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -171,7 +172,7 @@ func (r *Repository) DeleteExpiredOrRevokedSessionsBefore(ctx context.Context, b
 
 func (r *Repository) SessionByRefreshHash(ctx context.Context, hash string) (Session, error) {
 	var session Session
-	query := r.db.Rebind("SELECT id, user_id, refresh_token_hash, tenant_id, membership_id, expires_at, revoked_at, revoke_reason, version, created_at, updated_at, created_by, updated_by, last_used_at FROM sessions WHERE refresh_token_hash = ?")
+	query := r.db.Rebind("SELECT " + sessionColumns + " FROM sessions WHERE refresh_token_hash = ?")
 	if err := r.db.GetContext(ctx, &session, query, hash); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Session{}, ErrNotFound
@@ -183,7 +184,7 @@ func (r *Repository) SessionByRefreshHash(ctx context.Context, hash string) (Ses
 
 func (r *Repository) GetSession(ctx context.Context, id, userID string) (Session, error) {
 	var session Session
-	query := r.db.Rebind("SELECT id, user_id, refresh_token_hash, tenant_id, membership_id, expires_at, revoked_at, revoke_reason, version, created_at, updated_at, created_by, updated_by, last_used_at FROM sessions WHERE id = ? AND user_id = ?")
+	query := r.db.Rebind("SELECT " + sessionColumns + " FROM sessions WHERE id = ? AND user_id = ?")
 	if err := r.db.GetContext(ctx, &session, query, id, userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Session{}, ErrNotFound
@@ -191,6 +192,64 @@ func (r *Repository) GetSession(ctx context.Context, id, userID string) (Session
 		return Session{}, fmt.Errorf("select session: %w", err)
 	}
 	return session, nil
+}
+
+func (r *Repository) GetSessionByID(ctx context.Context, id string) (Session, error) {
+	var session Session
+	query := r.db.Rebind("SELECT " + sessionColumns + " FROM sessions WHERE id = ?")
+	if err := r.db.GetContext(ctx, &session, query, id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Session{}, ErrNotFound
+		}
+		return Session{}, fmt.Errorf("select session by id: %w", err)
+	}
+	return session, nil
+}
+
+func (r *Repository) ListSessions(
+	ctx context.Context,
+	userID string,
+	tenantID string,
+	status string,
+	now time.Time,
+	limit int,
+	offset int,
+) ([]Session, int64, error) {
+	where := " WHERE 1=1"
+	args := make([]any, 0, 4)
+	if userID != "" {
+		where += " AND user_id = ?"
+		args = append(args, userID)
+	}
+	if tenantID != "" {
+		where += " AND tenant_id = ?"
+		args = append(args, tenantID)
+	}
+	switch status {
+	case "active":
+		where += " AND revoked_at IS NULL AND expires_at > ?"
+		args = append(args, now)
+	case "revoked":
+		where += " AND revoked_at IS NOT NULL"
+	case "expired":
+		where += " AND revoked_at IS NULL AND expires_at <= ?"
+		args = append(args, now)
+	}
+
+	var total int64
+	if err := r.db.GetContext(ctx, &total, r.db.Rebind("SELECT COUNT(*) FROM sessions"+where), args...); err != nil {
+		return nil, 0, fmt.Errorf("count sessions: %w", err)
+	}
+	queryArgs := append(append([]any(nil), args...), limit, offset)
+	sessions := make([]Session, 0, limit)
+	query := r.db.Rebind(
+		"SELECT " + sessionColumns + " FROM sessions" + where +
+			" ORDER BY last_used_at DESC, id LIMIT ? OFFSET ?",
+	)
+	if err := r.db.SelectContext(ctx, &sessions, query, queryArgs...); err != nil {
+		return nil, 0, fmt.Errorf("list sessions: %w", err)
+	}
+	return sessions, total, nil
 }
 
 func (r *Repository) RotateSession(ctx context.Context, tx *sqlx.Tx, session Session, previousHash string) error {
@@ -205,6 +264,26 @@ func (r *Repository) RevokeSession(ctx context.Context, tx *sqlx.Tx, id, userID,
 	result, err := tx.ExecContext(ctx, r.db.Rebind("UPDATE sessions SET revoked_at = ?, revoke_reason = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL"), now, reason, now, actor, id, userID)
 	if err != nil {
 		return fmt.Errorf("revoke session: %w", err)
+	}
+	return requireAffected(result)
+}
+
+func (r *Repository) RevokeSessionByID(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	id string,
+	reason string,
+	actor string,
+	version int64,
+	now time.Time,
+) error {
+	query := r.db.Rebind(
+		"UPDATE sessions SET revoked_at = ?, revoke_reason = ?, version = version + 1, " +
+			"updated_at = ?, updated_by = ? WHERE id = ? AND version = ? AND revoked_at IS NULL",
+	)
+	result, err := tx.ExecContext(ctx, query, now, reason, now, actor, id, version)
+	if err != nil {
+		return fmt.Errorf("administratively revoke session: %w", err)
 	}
 	return requireAffected(result)
 }

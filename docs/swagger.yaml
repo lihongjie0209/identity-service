@@ -87,6 +87,19 @@ definitions:
       status:
         type: string
     type: object
+  httptransport.ListSessionsRequest:
+    properties:
+      page:
+        type: integer
+      page_size:
+        type: integer
+      status:
+        type: string
+      tenant_id:
+        type: string
+      user_id:
+        type: string
+    type: object
   httptransport.LoginRequest:
     properties:
       login:
@@ -146,6 +159,19 @@ definitions:
       request_id:
         type: string
     type: object
+  httptransport.RevokeSessionRequest:
+    properties:
+      reason:
+        type: string
+      session_id:
+        type: string
+      version:
+        type: integer
+    required:
+    - reason
+    - session_id
+    - version
+    type: object
   httptransport.ServiceAccountPageResponseBody:
     properties:
       items:
@@ -193,6 +219,50 @@ definitions:
     required:
     - client_id
     - client_secret
+    type: object
+  httptransport.SessionPageResponseBody:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/httptransport.SessionResponseBody'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
+  httptransport.SessionResponseBody:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      expires_at:
+        type: string
+      last_used_at:
+        type: string
+      membership_id:
+        type: string
+      revoke_reason:
+        type: string
+      revoked_at:
+        type: string
+      session_id:
+        type: string
+      status:
+        type: string
+      tenant_id:
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+      user_id:
+        type: string
+      version:
+        type: integer
     type: object
   httptransport.UpdateIdentityStatusRequest:
     properties:
@@ -567,6 +637,66 @@ paths:
       summary: Enable or disable a service account with optimistic locking
       tags:
       - service-accounts
+  /api/v1/sessions/list:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Filters and pagination
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.ListSessionsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.SessionPageResponseBody'
+              type: object
+      security:
+      - Bearer: []
+      summary: List user sessions for security administration
+      tags:
+      - sessions
+  /api/v1/sessions/revoke:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Session, reason, and expected version
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.RevokeSessionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.SessionResponseBody'
+              type: object
+        "409":
+          description: 'Code 30009: stale resource version'
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      security:
+      - Bearer: []
+      summary: Administratively revoke a session with optimistic locking
+      tags:
+      - sessions
   /api/v1/version:
     post:
       produces:

@@ -146,6 +146,31 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if err != nil || identityResponse.GetUser().GetUsername() != "alice" {
 		t.Fatalf("JWT GetUser: %v, %v", identityResponse, err)
 	}
+	sessionsBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/sessions/list",
+		"Bearer "+token,
+		"",
+		`{"user_id":"`+userID+`","status":"active","page":1,"page_size":20}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("list sessions status=%d body=%s", status, sessionsBody)
+	}
+	sessionID, sessionVersion := responseSession(t, sessionsBody)
+	revokeBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/sessions/revoke",
+		"Bearer "+token,
+		"",
+		fmt.Sprintf(
+			`{"session_id":%q,"reason":"integration security test","version":%d}`,
+			sessionID,
+			sessionVersion,
+		),
+	)
+	if status != http.StatusOK || !bytes.Contains(revokeBody, []byte(`"status":"revoked"`)) {
+		t.Fatalf("revoke session status=%d body=%s", status, revokeBody)
+	}
 }
 
 func responseUserID(t *testing.T, data []byte) string {
@@ -176,6 +201,25 @@ func responseTokens(t *testing.T, data []byte) (string, string) {
 		t.Fatalf("missing tokens: %s", data)
 	}
 	return response.Body.AccessToken, response.Body.RefreshToken
+}
+
+func responseSession(t *testing.T, data []byte) (string, int64) {
+	t.Helper()
+	var response struct {
+		Body struct {
+			Items []struct {
+				SessionID string `json:"session_id"`
+				Version   int64  `json:"version"`
+			} `json:"items"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Body.Items) != 1 || response.Body.Items[0].SessionID == "" {
+		t.Fatalf("missing session: %s", data)
+	}
+	return response.Body.Items[0].SessionID, response.Body.Items[0].Version
 }
 
 func freeAddress(t *testing.T) string {
