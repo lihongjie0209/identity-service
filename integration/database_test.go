@@ -80,6 +80,13 @@ func TestRepositoryAndMigrations(t *testing.T) {
 			if err != nil || secret == "" {
 				t.Fatalf("service account=%+v err=%v", account, err)
 			}
+			accountPage, err := service.ListServiceAccounts(ctx, "report", identitydomain.StatusActive, 1, 20)
+			if err != nil || accountPage.Total != 1 || len(accountPage.Items) != 1 || accountPage.Items[0].ID != account.ID {
+				t.Fatalf("service account page=%+v err=%v", accountPage, err)
+			}
+			if len(accountPage.Items[0].Audiences) != 1 || accountPage.Items[0].Audiences[0] != "reporting-api" {
+				t.Fatalf("service account audiences=%v", accountPage.Items[0].Audiences)
+			}
 			serviceToken, _, err := service.ServiceAccountToken(ctx, account.ClientID, secret)
 			if err != nil || serviceToken == "" {
 				t.Fatalf("service token error=%v", err)

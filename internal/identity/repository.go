@@ -22,6 +22,7 @@ type Repository struct{ db *sqlx.DB }
 func NewRepository(db *sqlx.DB) *Repository { return &Repository{db: db} }
 
 const userColumns = "id, username, name, email, phone, status, failed_login_count, locked_until, version, created_at, updated_at, created_by, updated_by"
+const serviceAccountColumns = "id, client_id, name, secret_hash, status, audiences_json, version, created_at, updated_at, created_by, updated_by"
 
 func (r *Repository) CreateUser(ctx context.Context, tx *sqlx.Tx, user User, credential Credential) error {
 	userQuery := r.db.Rebind("INSERT INTO users (id, username, name, email, phone, status, failed_login_count, version, created_at, updated_at, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -222,7 +223,7 @@ func (r *Repository) RevokeTenantSessions(ctx context.Context, userID, tenantID,
 
 func (r *Repository) GetServiceAccount(ctx context.Context, id string) (ServiceAccount, error) {
 	var account ServiceAccount
-	query := r.db.Rebind("SELECT id, client_id, name, secret_hash, status, audiences_json, version, created_at, updated_at, created_by, updated_by FROM service_accounts WHERE id = ?")
+	query := r.db.Rebind("SELECT " + serviceAccountColumns + " FROM service_accounts WHERE id = ?")
 	if err := r.db.GetContext(ctx, &account, query, id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ServiceAccount{}, ErrNotFound
@@ -230,6 +231,49 @@ func (r *Repository) GetServiceAccount(ctx context.Context, id string) (ServiceA
 		return ServiceAccount{}, fmt.Errorf("select service account: %w", err)
 	}
 	return account, nil
+}
+
+func (r *Repository) ListServiceAccounts(
+	ctx context.Context,
+	keyword string,
+	status string,
+	limit int,
+	offset int,
+) ([]ServiceAccount, int64, error) {
+	keyword = strings.TrimSpace(keyword)
+	status = strings.TrimSpace(status)
+	where := " WHERE 1=1"
+	args := make([]any, 0, 3)
+	if status != "" {
+		where += " AND status = ?"
+		args = append(args, status)
+	}
+	if keyword != "" {
+		where += " AND (LOWER(client_id) LIKE LOWER(?) OR LOWER(name) LIKE LOWER(?))"
+		pattern := "%" + keyword + "%"
+		args = append(args, pattern, pattern)
+	}
+
+	var total int64
+	if err := r.db.GetContext(
+		ctx,
+		&total,
+		r.db.Rebind("SELECT COUNT(*) FROM service_accounts"+where),
+		args...,
+	); err != nil {
+		return nil, 0, fmt.Errorf("count service accounts: %w", err)
+	}
+
+	queryArgs := append(append([]any(nil), args...), limit, offset)
+	accounts := make([]ServiceAccount, 0, limit)
+	query := r.db.Rebind(
+		"SELECT " + serviceAccountColumns + " FROM service_accounts" + where +
+			" ORDER BY created_at DESC, id LIMIT ? OFFSET ?",
+	)
+	if err := r.db.SelectContext(ctx, &accounts, query, queryArgs...); err != nil {
+		return nil, 0, fmt.Errorf("list service accounts: %w", err)
+	}
+	return accounts, total, nil
 }
 
 func (r *Repository) CreateServiceAccount(ctx context.Context, tx *sqlx.Tx, account ServiceAccount) error {
@@ -245,7 +289,7 @@ func (r *Repository) CreateServiceAccount(ctx context.Context, tx *sqlx.Tx, acco
 
 func (r *Repository) ServiceAccountByClientID(ctx context.Context, clientID string) (ServiceAccount, error) {
 	var account ServiceAccount
-	query := r.db.Rebind("SELECT id, client_id, name, secret_hash, status, audiences_json, version, created_at, updated_at, created_by, updated_by FROM service_accounts WHERE client_id = ?")
+	query := r.db.Rebind("SELECT " + serviceAccountColumns + " FROM service_accounts WHERE client_id = ?")
 	if err := r.db.GetContext(ctx, &account, query, clientID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ServiceAccount{}, ErrNotFound

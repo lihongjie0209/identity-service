@@ -41,6 +41,13 @@ definitions:
     - audiences
     - name
     type: object
+  httptransport.CreateServiceAccountResponseBody:
+    properties:
+      account:
+        $ref: '#/definitions/httptransport.ServiceAccountResponseBody'
+      client_secret:
+        type: string
+    type: object
   httptransport.IdentityResponseBody:
     properties:
       display_name:
@@ -59,6 +66,17 @@ definitions:
         type: integer
     type: object
   httptransport.ListIdentitiesRequest:
+    properties:
+      keyword:
+        type: string
+      page:
+        type: integer
+      page_size:
+        type: integer
+      status:
+        type: string
+    type: object
+  httptransport.ListServiceAccountsRequest:
     properties:
       keyword:
         type: string
@@ -127,6 +145,44 @@ definitions:
         type: string
       request_id:
         type: string
+    type: object
+  httptransport.ServiceAccountPageResponseBody:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/httptransport.ServiceAccountResponseBody'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
+  httptransport.ServiceAccountResponseBody:
+    properties:
+      audiences:
+        items:
+          type: string
+        type: array
+      client_id:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+      version:
+        type: integer
     type: object
   httptransport.ServiceAccountTokenRequest:
     properties:
@@ -449,10 +505,43 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/httptransport.Response'
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.CreateServiceAccountResponseBody'
+              type: object
       security:
       - Bearer: []
       summary: Create a service account and return its secret once
+      tags:
+      - service-accounts
+  /api/v1/service-accounts/list:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Filters and pagination
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.ListServiceAccountsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.ServiceAccountPageResponseBody'
+              type: object
+      security:
+      - Bearer: []
+      summary: List service accounts
       tags:
       - service-accounts
   /api/v1/service-accounts/update-status:

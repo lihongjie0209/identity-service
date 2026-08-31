@@ -289,9 +289,45 @@ func (s *Service) IssueTenantToken(ctx context.Context, userID, tenantID, member
 func (s *Service) GetServiceAccount(ctx context.Context, id string) (ServiceAccount, error) {
 	account, err := s.repository.GetServiceAccount(ctx, id)
 	if err == nil {
-		_ = json.Unmarshal([]byte(account.AudiencesJSON), &account.Audiences)
+		if decodeErr := decodeServiceAccountAudiences(&account); decodeErr != nil {
+			return ServiceAccount{}, apperror.Internal(decodeErr)
+		}
 	}
 	return account, translateIdentityError(err)
+}
+
+func (s *Service) ListServiceAccounts(
+	ctx context.Context,
+	keyword string,
+	status string,
+	page int,
+	pageSize int,
+) (Page[ServiceAccount], error) {
+	if status != "" && status != StatusActive && status != StatusDisabled {
+		return Page[ServiceAccount]{}, apperror.Invalid("invalid service account status", nil)
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	items, total, err := s.repository.ListServiceAccounts(
+		ctx,
+		keyword,
+		status,
+		pageSize,
+		(page-1)*pageSize,
+	)
+	if err != nil {
+		return Page[ServiceAccount]{}, translateIdentityError(err)
+	}
+	for index := range items {
+		if err := decodeServiceAccountAudiences(&items[index]); err != nil {
+			return Page[ServiceAccount]{}, apperror.Internal(err)
+		}
+	}
+	return Page[ServiceAccount]{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
 }
 func (s *Service) CreateServiceAccount(ctx context.Context, name string, audiences []string) (ServiceAccount, string, error) {
 	name = strings.TrimSpace(name)
@@ -367,6 +403,16 @@ func (s *Service) ServiceAccountToken(ctx context.Context, clientID, secret stri
 }
 func (s *Service) JWKS() JWKS                             { return s.issuer.JWKS() }
 func (s *Service) Parse(raw string) (*TokenClaims, error) { return s.issuer.Parse(raw) }
+
+func decodeServiceAccountAudiences(account *ServiceAccount) error {
+	if err := json.Unmarshal([]byte(account.AudiencesJSON), &account.Audiences); err != nil {
+		return fmt.Errorf("decode service account audiences: %w", err)
+	}
+	if account.Audiences == nil {
+		account.Audiences = []string{}
+	}
+	return nil
+}
 
 func newRefreshToken() (string, string, error) {
 	raw := make([]byte, 32)

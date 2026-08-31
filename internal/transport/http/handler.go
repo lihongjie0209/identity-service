@@ -2,6 +2,7 @@ package httptransport
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lihongjie0209/identity-service/internal/apperror"
@@ -43,6 +44,34 @@ type RegisterIdentityRequest struct {
 type CreateServiceAccountRequest struct {
 	Name      string   `json:"name" binding:"required"`
 	Audiences []string `json:"audiences" binding:"required"`
+}
+type ListServiceAccountsRequest struct {
+	Keyword  string `json:"keyword"`
+	Status   string `json:"status"`
+	Page     int    `json:"page"`
+	PageSize int    `json:"page_size"`
+}
+type ServiceAccountResponseBody struct {
+	ID        string    `json:"id"`
+	ClientID  string    `json:"client_id"`
+	Name      string    `json:"name"`
+	Status    string    `json:"status"`
+	Audiences []string  `json:"audiences"`
+	Version   int64     `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	CreatedBy string    `json:"created_by"`
+	UpdatedBy string    `json:"updated_by"`
+}
+type ServiceAccountPageResponseBody struct {
+	Items    []ServiceAccountResponseBody `json:"items"`
+	Total    int64                        `json:"total"`
+	Page     int                          `json:"page"`
+	PageSize int                          `json:"page_size"`
+}
+type CreateServiceAccountResponseBody struct {
+	Account      ServiceAccountResponseBody `json:"account"`
+	ClientSecret string                     `json:"client_secret"`
 }
 type UpdateServiceAccountStatusRequest struct {
 	ID      string `json:"id" binding:"required"`
@@ -236,7 +265,7 @@ func (h *Handler) JWKS(c *gin.Context) { c.JSON(200, h.identities.JWKS()) }
 // @Accept json
 // @Produce json
 // @Param request body CreateServiceAccountRequest true "Service account"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=CreateServiceAccountResponseBody}
 // @Router /api/v1/service-accounts/create [post]
 func (h *Handler) CreateServiceAccount(c *gin.Context) {
 	var req CreateServiceAccountRequest
@@ -249,7 +278,48 @@ func (h *Handler) CreateServiceAccount(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, gin.H{"account": account, "client_secret": secret})
+	OK(c, CreateServiceAccountResponseBody{
+		Account:      serviceAccountResponse(account),
+		ClientSecret: secret,
+	})
+}
+
+// ListServiceAccounts godoc
+// @Summary List service accounts
+// @Tags service-accounts
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body ListServiceAccountsRequest true "Filters and pagination"
+// @Success 200 {object} Response{body=ServiceAccountPageResponseBody}
+// @Router /api/v1/service-accounts/list [post]
+func (h *Handler) ListServiceAccounts(c *gin.Context) {
+	var req ListServiceAccountsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	page, err := h.identities.ListServiceAccounts(
+		c.Request.Context(),
+		req.Keyword,
+		req.Status,
+		req.Page,
+		req.PageSize,
+	)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	items := make([]ServiceAccountResponseBody, 0, len(page.Items))
+	for _, account := range page.Items {
+		items = append(items, serviceAccountResponse(account))
+	}
+	OK(c, ServiceAccountPageResponseBody{
+		Items:    items,
+		Total:    page.Total,
+		Page:     page.Page,
+		PageSize: page.PageSize,
+	})
 }
 
 // UpdateServiceAccountStatus godoc
@@ -340,3 +410,18 @@ func (h *Handler) Me(c *gin.Context) {
 // @Success 200 {object} Response{body=buildinfo.Info}
 // @Router /api/v1/version [post]
 func (h *Handler) Version(c *gin.Context) { OK(c, buildinfo.Current()) }
+
+func serviceAccountResponse(account identitydomain.ServiceAccount) ServiceAccountResponseBody {
+	return ServiceAccountResponseBody{
+		ID:        account.ID,
+		ClientID:  account.ClientID,
+		Name:      account.Name,
+		Status:    account.Status,
+		Audiences: account.Audiences,
+		Version:   account.Version,
+		CreatedAt: account.CreatedAt,
+		UpdatedAt: account.UpdatedAt,
+		CreatedBy: account.CreatedBy,
+		UpdatedBy: account.UpdatedBy,
+	}
+}

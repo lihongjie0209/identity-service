@@ -103,6 +103,26 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+token, "", `{}`); status != http.StatusOK {
 		t.Fatalf("JWT status = %d", status)
 	}
+	serviceAccountBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/service-accounts/create",
+		"Bearer "+token,
+		"",
+		`{"name":"reporting","audiences":["reporting-api"]}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("create service account status=%d body=%s", status, serviceAccountBody)
+	}
+	serviceAccountsBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/service-accounts/list",
+		"Bearer "+token,
+		"",
+		`{"keyword":"report","status":"active","page":1,"page_size":20}`,
+	)
+	if status != http.StatusOK || !bytes.Contains(serviceAccountsBody, []byte(`"client_id":"svc_`)) {
+		t.Fatalf("list service accounts status=%d body=%s", status, serviceAccountsBody)
+	}
 	refreshBody, status := postJSONBody(t, baseURL+"/api/v1/auth/refresh", "", "", `{"refresh_token":"`+refresh+`"}`)
 	if status != http.StatusOK {
 		t.Fatalf("refresh status=%d body=%s", status, refreshBody)
