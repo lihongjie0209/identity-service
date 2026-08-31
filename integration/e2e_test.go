@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	hellov1 "github.com/lihongjie0209/identity-service/gen/hello/v1"
 	"github.com/lihongjie0209/identity-service/internal/app"
 	"github.com/lihongjie0209/identity-service/internal/config"
 	identityv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/identity/v1"
@@ -71,7 +70,7 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		Health:        config.Health{DatabaseTimeout: 2 * time.Second, RedisTimeout: 2 * time.Second},
 		Observability: config.Observability{MetricsEnabled: true},
 		JWT:           config.JWT{Issuer: "integration", Secret: secret, TTL: time.Hour},
-		Auth:          config.Auth{SkipHTTPPaths: []string{"/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/version"}, SkipGRPCMethods: []string{"/grpc.health.v1.Health/*"}, PSK: config.PSK{Enabled: true, Key: secret, HTTPPaths: []string{"/api/v1/identities/register"}, GRPCMethods: []string{"/hello.v1.HelloService/*"}}},
+		Auth:          config.Auth{SkipHTTPPaths: []string{"/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/version"}, SkipGRPCMethods: []string{"/grpc.health.v1.Health/*"}, PSK: config.PSK{Enabled: true, Key: secret, HTTPPaths: []string{"/api/v1/identities/register"}, GRPCMethods: []string{"/platform.identity.v1.IdentityService/GetUser"}}},
 		Cron:          config.Cron{Enabled: false, Timezone: "UTC"},
 		User:          config.User{CacheTTL: time.Minute, LockTTL: 10 * time.Second, LockRetryDelay: 20 * time.Millisecond},
 		Idempotency:   config.Idempotency{Enabled: true, ProcessingTTL: 30 * time.Second, ResultTTL: time.Hour, FailureTTL: time.Minute},
@@ -117,8 +116,8 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		t.Fatalf("health = %v, %v", healthResponse, err)
 	}
 	pskCtx := metadata.AppendToOutgoingContext(ctx, "authorization", "PSK "+secret)
-	if _, err := hellov1.NewHelloServiceClient(connection).Ping(pskCtx, &hellov1.PingRequest{Message: "hello"}); err != nil {
-		t.Fatalf("PSK Ping: %v", err)
+	if _, err := identityv1.NewIdentityServiceClient(connection).GetUser(pskCtx, &identityv1.GetUserRequest{UserId: userID}); err != nil {
+		t.Fatalf("PSK GetUser: %v", err)
 	}
 	jwtCtx := metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
 	identityResponse, err := identityv1.NewIdentityServiceClient(connection).GetUser(jwtCtx, &identityv1.GetUserRequest{UserId: userID})
