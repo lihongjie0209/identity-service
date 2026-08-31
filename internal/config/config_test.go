@@ -46,6 +46,27 @@ func TestLoad_EnvironmentOverridesFile(t *testing.T) {
 	if cfg.Cron.SessionRetention != 30*24*time.Hour || cfg.Cron.SessionCleanupInterval != time.Hour || cfg.Cron.SessionCleanupBatchSize != 500 {
 		t.Fatalf("unexpected session retention defaults: %+v", cfg.Cron)
 	}
+	if cfg.EventBus.PublishedRetention != 7*24*time.Hour || cfg.EventBus.CleanupInterval != time.Hour || cfg.EventBus.CleanupBatchSize != 1000 {
+		t.Fatalf("unexpected outbox cleanup defaults: %+v", cfg.EventBus)
+	}
+}
+
+func TestConfigRejectsInvalidOutboxCleanup(t *testing.T) {
+	cfg, err := LoadWithProfile("../../config/config.yaml", "development")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.EventBus.Enabled = true
+	for _, mutate := range []func(*EventBus){
+		func(eventBus *EventBus) { eventBus.PublishedRetention = eventBus.MaxAge - time.Second },
+		func(eventBus *EventBus) { eventBus.CleanupBatchSize = 0 },
+	} {
+		candidate := cfg
+		mutate(&candidate.EventBus)
+		if err := candidate.Validate(); err == nil {
+			t.Fatal("Validate() error = nil, want outbox cleanup validation error")
+		}
+	}
 }
 
 func TestLoad_SessionRetentionEnvironmentOverrides(t *testing.T) {

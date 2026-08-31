@@ -7,13 +7,13 @@ require (
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-redis/redis_rate/v10 v10.0.1
-	github.com/go-sql-driver/mysql v1.9.2
+	github.com/go-sql-driver/mysql v1.10.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.18.3
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jmoiron/sqlx v1.4.0
-	github.com/lihongjie0209/microservice-platform-go v0.1.2
+	github.com/lihongjie0209/microservice-platform-go v0.9.3
 	github.com/lihongjie0209/platform-protos v0.19.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/redis/go-redis/extra/redisotel/v9 v9.22.0
@@ -44,7 +44,7 @@ require (
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
-	filippo.io/edwards25519 v1.1.0 // indirect
+	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/MicahParks/jwkset v0.11.1 // indirect
