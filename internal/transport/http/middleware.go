@@ -2,6 +2,7 @@ package httptransport
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/lihongjie0209/identity-service/internal/observability"
 	appLimit "github.com/lihongjie0209/identity-service/internal/ratelimit"
 	"github.com/lihongjie0209/identity-service/internal/requestid"
+	platformauthz "github.com/lihongjie0209/microservice-platform-go/authz"
 	"github.com/lihongjie0209/microservice-platform-go/principal"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -98,12 +100,46 @@ func Timeout(timeout time.Duration, logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 		defer cancel()
-		c.Request = c.Request.WithContext(ctx)
+		c.Request = c.Request.WithContext(platformauthz.WithCallerCredential(ctx, c.GetHeader("Authorization")))
 		c.Next()
 		if ctx.Err() == context.DeadlineExceeded && !c.Writer.Written() {
 			Fail(c, logger, apperror.RequestTimeout())
 		}
 	}
+}
+
+func Authorization(enabled bool, authorizer platformauthz.Authorizer, logger *slog.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		requirement, protected := identityHTTPRequirement(c.FullPath())
+		if !enabled || !protected {
+			c.Next()
+			return
+		}
+		if err := platformauthz.Enforce(c.Request.Context(), authorizer, requirement); err != nil {
+			if errors.Is(err, platformauthz.ErrDecisionUnavailable) {
+				Fail(c, logger, apperror.Unavailable("authorization decision is unavailable", err))
+				return
+			}
+			Fail(c, logger, apperror.Forbidden("permission denied"))
+			return
+		}
+		c.Next()
+	}
+}
+
+func identityHTTPRequirement(route string) (platformauthz.Requirement, bool) {
+	requirements := map[string]platformauthz.Requirement{
+		"/api/v1/sessions/list":                  {Resource: "identity.session", Action: "list", Scope: platformauthz.ScopePlatform},
+		"/api/v1/sessions/revoke":                {Resource: "identity.session", Action: "revoke", Scope: platformauthz.ScopePlatform},
+		"/api/v1/identities/register":            {Resource: "identity.user", Action: "create", Scope: platformauthz.ScopePlatform},
+		"/api/v1/identities/list":                {Resource: "identity.user", Action: "list", Scope: platformauthz.ScopePlatform},
+		"/api/v1/identities/update-status":       {Resource: "identity.user", Action: "update-status", Scope: platformauthz.ScopePlatform},
+		"/api/v1/service-accounts/create":        {Resource: "identity.service-account", Action: "create", Scope: platformauthz.ScopePlatform},
+		"/api/v1/service-accounts/list":          {Resource: "identity.service-account", Action: "list", Scope: platformauthz.ScopePlatform},
+		"/api/v1/service-accounts/update-status": {Resource: "identity.service-account", Action: "update-status", Scope: platformauthz.ScopePlatform},
+	}
+	requirement, ok := requirements[route]
+	return requirement, ok
 }
 
 func MaxBody(limit int64) gin.HandlerFunc {

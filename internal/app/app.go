@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/lihongjie0209/identity-service/internal/authorization"
 	"github.com/lihongjie0209/identity-service/internal/cache"
 	"github.com/lihongjie0209/identity-service/internal/config"
 	"github.com/lihongjie0209/identity-service/internal/database"
@@ -39,6 +40,7 @@ func New(cfg config.Config) *fx.App {
 		EventBusModule,
 		fx.Provide(observability.NewMetrics),
 		outbound.Module,
+		fx.Provide(authorization.New),
 		scheduler.Module,
 		grpctransport.Module,
 		httptransport.Module,
