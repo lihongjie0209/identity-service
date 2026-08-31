@@ -368,7 +368,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("swagger.enabled", true)
 	v.SetDefault("swagger.require_auth", false)
 	v.SetDefault("jwt.issuer", "identity-service")
-	v.SetDefault("jwt.audiences", []string{"identity-service", "tenant-service", "authorization-service", "audit-service", "config-service", "notification-service", "file-service", "scheduler-service", "swagger-service", "application-service", "dictionary-service", "webhook-service", "workflow-service", "search-service", "metering-service"})
+	v.SetDefault("jwt.audiences", []string{"identity-service", "tenant-service", "authorization-service", "audit-service", "config-service", "notification-service", "file-service", "scheduler-service", "swagger-service", "application-service", "dictionary-service", "webhook-service", "workflow-service", "search-service", "metering-service", "billing-service"})
 	v.SetDefault("jwt.secret", "")
 	v.SetDefault("jwt.ttl", "2h")
 	v.SetDefault("jwt.key_id", "identity-current")
