@@ -25,6 +25,13 @@ type User struct {
 	audit.Fields
 }
 
+type Page[T any] struct {
+	Items    []T   `json:"items"`
+	Total    int64 `json:"total"`
+	Page     int   `json:"page"`
+	PageSize int   `json:"page_size"`
+}
+
 type Credential struct {
 	ID         string `db:"id"`
 	UserID     string `db:"user_id"`

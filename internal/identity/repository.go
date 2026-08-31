@@ -76,6 +76,33 @@ func (r *Repository) GetUser(ctx context.Context, id string) (User, error) {
 	return user, nil
 }
 
+func (r *Repository) ListUsers(ctx context.Context, keyword, status string, limit, offset int) ([]User, int64, error) {
+	keyword = strings.TrimSpace(keyword)
+	status = strings.TrimSpace(status)
+	where := " WHERE 1=1"
+	args := make([]any, 0, 4)
+	if status != "" {
+		where += " AND status = ?"
+		args = append(args, status)
+	}
+	if keyword != "" {
+		where += " AND (LOWER(username) LIKE LOWER(?) OR LOWER(name) LIKE LOWER(?) OR LOWER(email) LIKE LOWER(?))"
+		pattern := "%" + keyword + "%"
+		args = append(args, pattern, pattern, pattern)
+	}
+	var total int64
+	if err := r.db.GetContext(ctx, &total, r.db.Rebind("SELECT COUNT(*) FROM users"+where), args...); err != nil {
+		return nil, 0, fmt.Errorf("count identity users: %w", err)
+	}
+	queryArgs := append(append([]any(nil), args...), limit, offset)
+	users := make([]User, 0, limit)
+	query := r.db.Rebind("SELECT " + userColumns + " FROM users" + where + " ORDER BY created_at DESC, id LIMIT ? OFFSET ?")
+	if err := r.db.SelectContext(ctx, &users, query, queryArgs...); err != nil {
+		return nil, 0, fmt.Errorf("list identity users: %w", err)
+	}
+	return users, total, nil
+}
+
 func (r *Repository) RecordFailedLogin(ctx context.Context, userID string, threshold int, lockedUntil, now time.Time) error {
 	query := r.db.Rebind("UPDATE users SET failed_login_count = failed_login_count + 1, locked_until = CASE WHEN failed_login_count + 1 >= ? THEN ? ELSE locked_until END, version = version + 1, updated_at = ?, updated_by = 'identity:login' WHERE id = ?")
 	if _, err := r.db.ExecContext(ctx, query, threshold, lockedUntil, now, userID); err != nil {

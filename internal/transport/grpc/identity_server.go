@@ -4,6 +4,7 @@ import (
 	"context"
 
 	identitydomain "github.com/lihongjie0209/identity-service/internal/identity"
+	commonv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/common/v1"
 	identityv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/identity/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -41,6 +42,35 @@ func (s *identityServer) BatchGetUsers(ctx context.Context, request *identityv1.
 		result = append(result, identityUser(user))
 	}
 	return &identityv1.BatchGetUsersResponse{Users: result}, nil
+}
+
+func (s *identityServer) ListUsers(ctx context.Context, request *identityv1.ListUsersRequest) (*identityv1.ListUsersResponse, error) {
+	page, pageSize := 1, 20
+	if request.GetPage() != nil {
+		page = int(request.GetPage().GetPage())
+		pageSize = int(request.GetPage().GetPageSize())
+	}
+	statusFilter := map[identityv1.UserStatus]string{
+		identityv1.UserStatus_USER_STATUS_ACTIVE:   identitydomain.StatusActive,
+		identityv1.UserStatus_USER_STATUS_DISABLED: identitydomain.StatusDisabled,
+		identityv1.UserStatus_USER_STATUS_LOCKED:   identitydomain.StatusLocked,
+		identityv1.UserStatus_USER_STATUS_CLOSED:   identitydomain.StatusClosed,
+	}[request.GetStatus()]
+	if request.GetStatus() != identityv1.UserStatus_USER_STATUS_UNSPECIFIED && statusFilter == "" {
+		return nil, status.Error(codes.InvalidArgument, "invalid user status")
+	}
+	result, err := s.service.ListUsers(ctx, request.GetKeyword(), statusFilter, page, pageSize)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	users := make([]*identityv1.User, 0, len(result.Items))
+	for _, user := range result.Items {
+		users = append(users, identityUser(user))
+	}
+	return &identityv1.ListUsersResponse{
+		Users: users,
+		Page:  &commonv1.PageResult{Total: uint64(result.Total), Page: uint32(result.Page), PageSize: uint32(result.PageSize)},
+	}, nil
 }
 
 func (s *identityServer) ValidateSession(ctx context.Context, request *identityv1.ValidateSessionRequest) (*identityv1.ValidateSessionResponse, error) {

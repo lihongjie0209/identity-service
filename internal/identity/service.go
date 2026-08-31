@@ -210,6 +210,22 @@ func (s *Service) GetUser(ctx context.Context, id string) (User, error) {
 	user, err := s.repository.GetUser(ctx, id)
 	return user, translateIdentityError(err)
 }
+func (s *Service) ListUsers(ctx context.Context, keyword, status string, page, pageSize int) (Page[User], error) {
+	if status != "" && status != StatusActive && status != StatusDisabled && status != StatusLocked && status != StatusClosed {
+		return Page[User]{}, apperror.Invalid("invalid user status", nil)
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	items, total, err := s.repository.ListUsers(ctx, keyword, status, pageSize, (page-1)*pageSize)
+	if err != nil {
+		return Page[User]{}, translateIdentityError(err)
+	}
+	return Page[User]{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
+}
 func (s *Service) UpdateUserStatus(ctx context.Context, id, status, reason string, version int64) (User, error) {
 	if status != StatusActive && status != StatusDisabled && status != StatusLocked && status != StatusClosed {
 		return User{}, apperror.Invalid("invalid user status", nil)

@@ -68,6 +68,12 @@ type UpdateIdentityStatusRequest struct {
 	Reason  string `json:"reason"`
 	Version int64  `json:"version" binding:"required"`
 }
+type ListIdentitiesRequest struct {
+	Keyword  string `json:"keyword"`
+	Status   string `json:"status"`
+	Page     int    `json:"page"`
+	PageSize int    `json:"page_size"`
+}
 type LoginResponseBody struct {
 	AccessToken string `json:"access_token"`
 	TokenType   string `json:"token_type"`
@@ -167,6 +173,29 @@ func (h *Handler) RegisterIdentity(c *gin.Context) {
 		return
 	}
 	OK(c, created)
+}
+
+// ListIdentities godoc
+// @Summary List user identities
+// @Tags identities
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body ListIdentitiesRequest true "Filters and pagination"
+// @Success 200 {object} Response
+// @Router /api/v1/identities/list [post]
+func (h *Handler) ListIdentities(c *gin.Context) {
+	var req ListIdentitiesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	page, err := h.identities.ListUsers(c.Request.Context(), req.Keyword, req.Status, req.Page, req.PageSize)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, page)
 }
 
 // UpdateIdentityStatus godoc

@@ -58,6 +58,17 @@ definitions:
       version:
         type: integer
     type: object
+  httptransport.ListIdentitiesRequest:
+    properties:
+      keyword:
+        type: string
+      page:
+        type: integer
+      page_size:
+        type: integer
+      status:
+        type: string
+    type: object
   httptransport.LoginRequest:
     properties:
       login:
@@ -318,6 +329,29 @@ paths:
       summary: Issue a service-account access token
       tags:
       - authentication
+  /api/v1/identities/list:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Filters and pagination
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.ListIdentitiesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      security:
+      - Bearer: []
+      summary: List user identities
+      tags:
+      - identities
   /api/v1/identities/register:
     post:
       consumes:
