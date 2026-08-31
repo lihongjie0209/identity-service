@@ -171,6 +171,9 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if status != http.StatusOK || !bytes.Contains(revokeBody, []byte(`"status":"revoked"`)) {
 		t.Fatalf("revoke session status=%d body=%s", status, revokeBody)
 	}
+	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+token, "", `{}`); status != http.StatusUnauthorized {
+		t.Fatalf("revoked session JWT status = %d, want %d", status, http.StatusUnauthorized)
+	}
 }
 
 func responseUserID(t *testing.T, data []byte) string {

@@ -17,20 +17,33 @@ import (
 )
 
 type Claims struct{ jwt.RegisteredClaims }
+type identityVerifier interface {
+	Parse(string) (*identitydomain.TokenClaims, error)
+	ValidateSession(context.Context, string, string) (identitydomain.Session, bool, error)
+}
 type Service struct {
 	issuer       string
 	secret       []byte
 	ttl          time.Duration
 	clientID     string
 	clientSecret string
-	identities   *identitydomain.Service
+	identities   identityVerifier
 }
 
-func (s *Service) VerifyBearer(_ context.Context, raw string) (principal.Principal, error) {
+func (s *Service) VerifyBearer(ctx context.Context, raw string) (principal.Principal, error) {
 	if s.identities != nil {
 		claims, err := s.identities.Parse(raw)
 		if err != nil {
 			return principal.Principal{}, err
+		}
+		if claims.SubjectType == "user" && claims.SessionID != "" {
+			_, valid, err := s.identities.ValidateSession(ctx, claims.SessionID, claims.Subject)
+			if err != nil {
+				return principal.Principal{}, fmt.Errorf("validate identity session: %w", err)
+			}
+			if !valid {
+				return principal.Principal{}, errors.New("identity session is unavailable")
+			}
 		}
 		return principal.Principal{ID: claims.Subject, Type: principal.Type(claims.SubjectType), TenantID: claims.TenantID, MembershipID: claims.MembershipID, SessionID: claims.SessionID}, nil
 	}
