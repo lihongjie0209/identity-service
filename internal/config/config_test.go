@@ -3,9 +3,25 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
+
+func TestLoad_DefaultAudiencesIncludeRuleService(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "config.yaml")
+	if err := os.WriteFile(path, []byte("app:\n  env: test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !slices.Contains(cfg.JWT.Audiences, "rule-service") {
+		t.Fatalf("JWT audiences = %v, want rule-service", cfg.JWT.Audiences)
+	}
+}
 
 func TestLoad_EnvironmentOverridesFile(t *testing.T) {
 	dir := t.TempDir()
