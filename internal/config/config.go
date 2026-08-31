@@ -160,9 +160,12 @@ type PSK struct {
 	GRPCMethods []string `mapstructure:"grpc_methods"`
 }
 type Cron struct {
-	Enabled    bool   `mapstructure:"enabled"`
-	Timezone   string `mapstructure:"timezone"`
-	SampleSpec string `mapstructure:"sample_spec"`
+	Enabled                 bool          `mapstructure:"enabled"`
+	Timezone                string        `mapstructure:"timezone"`
+	SampleSpec              string        `mapstructure:"sample_spec"`
+	SessionRetention        time.Duration `mapstructure:"session_retention"`
+	SessionCleanupInterval  time.Duration `mapstructure:"session_cleanup_interval"`
+	SessionCleanupBatchSize int           `mapstructure:"session_cleanup_batch_size"`
 }
 type Migration struct {
 	AutoUp       bool   `mapstructure:"auto_up"`
@@ -384,6 +387,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("cron.enabled", true)
 	v.SetDefault("cron.timezone", "Asia/Shanghai")
 	v.SetDefault("cron.sample_spec", "0 */5 * * * *")
+	v.SetDefault("cron.session_retention", "720h")
+	v.SetDefault("cron.session_cleanup_interval", "1h")
+	v.SetDefault("cron.session_cleanup_batch_size", 500)
 	v.SetDefault("migration.path", "migrations/postgres")
 	v.SetDefault("migration.database_url", "")
 	v.SetDefault("migration.auto_up", false)
@@ -517,6 +523,9 @@ func (c Config) Validate() error {
 	}
 	if c.EventBus.Enabled && (!c.Database.Enabled || len(c.EventBus.URLs) == 0 || c.EventBus.StreamName == "" || (c.EventBus.Storage != "file" && c.EventBus.Storage != "memory") || c.EventBus.DispatchInterval <= 0 || c.EventBus.DispatchBatchSize <= 0 || c.EventBus.DispatchLease <= 0 || c.EventBus.DispatchRetryDelay <= 0) {
 		return errors.New("enabled event_bus requires database, URLs, stream, valid storage, and positive dispatcher settings")
+	}
+	if c.Cron.SessionRetention <= 0 || c.Cron.SessionCleanupInterval <= 0 || c.Cron.SessionCleanupBatchSize <= 0 {
+		return errors.New("cron session retention values must be positive")
 	}
 	for name, upstream := range c.Outbound.HTTP {
 		if upstream.BaseURL == "" || upstream.Timeout <= 0 {

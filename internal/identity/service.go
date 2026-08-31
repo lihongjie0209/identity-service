@@ -402,4 +402,4 @@ func protoIdentityUser(user User) *identityv1.User {
 	return &identityv1.User{Id: user.ID, Username: user.Username, DisplayName: user.DisplayName, Email: user.Email, Phone: user.Phone, Status: statuses[user.Status], CreatedAt: timestamppb.New(user.CreatedAt), UpdatedAt: timestamppb.New(user.UpdatedAt), Version: user.Version, CreatedBy: user.CreatedBy, UpdatedBy: user.UpdatedBy}
 }
 
-var Module = fx.Module("identity", fx.Provide(NewRepository, NewService))
+var Module = fx.Module("identity", fx.Provide(NewRepository, NewService, NewSessionCleaner), fx.Invoke(func(*SessionCleaner) {}))

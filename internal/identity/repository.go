@@ -124,6 +124,23 @@ func (r *Repository) CreateSession(ctx context.Context, tx *sqlx.Tx, session Ses
 	return nil
 }
 
+func (r *Repository) DeleteExpiredOrRevokedSessionsBefore(ctx context.Context, before time.Time, limit int) (int64, error) {
+	var ids []string
+	query := r.db.Rebind("SELECT id FROM sessions WHERE (revoked_at IS NOT NULL AND revoked_at<?) OR (revoked_at IS NULL AND expires_at<?) ORDER BY COALESCE(revoked_at,expires_at),id LIMIT ?")
+	if err := r.db.SelectContext(ctx, &ids, query, before, before, limit); err != nil || len(ids) == 0 {
+		return 0, err
+	}
+	query, args, err := sqlx.In("DELETE FROM sessions WHERE id IN (?) AND ((revoked_at IS NOT NULL AND revoked_at<?) OR (revoked_at IS NULL AND expires_at<?))", ids, before, before)
+	if err != nil {
+		return 0, err
+	}
+	result, err := r.db.ExecContext(ctx, r.db.Rebind(query), args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 func (r *Repository) SessionByRefreshHash(ctx context.Context, hash string) (Session, error) {
 	var session Session
 	query := r.db.Rebind("SELECT id, user_id, refresh_token_hash, tenant_id, membership_id, expires_at, revoked_at, revoke_reason, version, created_at, updated_at, created_by, updated_by, last_used_at FROM sessions WHERE refresh_token_hash = ?")

@@ -40,6 +40,7 @@ CREATE TABLE sessions (
     last_used_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX idx_sessions_user_active ON sessions (user_id, expires_at) WHERE revoked_at IS NULL;
+CREATE INDEX idx_sessions_retention ON sessions (COALESCE(revoked_at, expires_at), id);
 
 CREATE TABLE service_accounts (
     id TEXT PRIMARY KEY,

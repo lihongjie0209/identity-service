@@ -99,6 +99,9 @@ cron:
   enabled: true
   timezone: Asia/Shanghai
   sample_spec: "0 */5 * * * *"
+  session_retention: 720h
+  session_cleanup_interval: 1h
+  session_cleanup_batch_size: 500
 migration:
   auto_up: false
   create_schema: false

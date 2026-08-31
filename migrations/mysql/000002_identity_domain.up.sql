@@ -39,6 +39,8 @@ CREATE TABLE sessions (
     updated_by VARCHAR(255) NOT NULL,
     last_used_at DATETIME(6) NOT NULL,
     INDEX idx_sessions_user_expires (user_id, expires_at),
+    INDEX idx_sessions_revoked_retention (revoked_at, id),
+    INDEX idx_sessions_expired_retention (expires_at, id),
     CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

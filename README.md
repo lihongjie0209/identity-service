@@ -4,7 +4,7 @@
 
 访问令牌使用 Ed25519/EdDSA。`jwt.key_id` 指定当前签名键，`jwt.secret` 通过环境或 Secret 注入；轮换时更换二者，并在 `jwt.previous_secrets` 中按旧 `kid` 保留旧密钥至最长 Token TTL 结束。刷新令牌只持久化哈希且每次使用都会旋转，重复使用旧令牌会失败。
 
-用户、服务账号和会话变更与 `outbox_events` 在同一数据库事务提交，再由 NATS JetStream dispatcher 发布。高增长的会话和 outbox 数据需按部署保留策略清理；PostgreSQL outbox 已按 `created_at` 分区，生产环境应由 DBA 或 `pg_partman` 预创建时间分区并在归档后删除历史分区。
+用户、服务账号和会话变更与 `outbox_events` 在同一数据库事务提交，再由 NATS JetStream dispatcher 发布。过期或已撤销的 refresh session 默认在其失效后保留 30 天，并以 500 条有界批次清理；生产环境可通过配置覆盖，并在删除前用数据导出或 CDC 归档。保留 refresh-token 哈希的全局唯一性，因此会话表在身份约束演进为时间桶之前不进行时间分区。PostgreSQL outbox 已按 `created_at` 分区，生产环境应由 DBA 或 `pg_partman` 预创建时间分区并在归档后删除历史分区。
 
 集成测试通过 Testcontainers 独立验证 PostgreSQL、MySQL、Redis、HTTP 和 gRPC，不依赖 tenant 或 authorization 服务运行。
 
