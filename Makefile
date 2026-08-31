@@ -31,6 +31,10 @@ test-race:
 	go test -race ./...
 
 test-integration:
+	go test -tags=integration -run '^$$' ./integration/...
+
+.PHONY: ci-test-integration
+ci-test-integration:
 	go test -tags=integration -count=1 -timeout=15m ./integration/...
 
 dev-up:
