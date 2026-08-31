@@ -24,6 +24,9 @@ func TestLoad_DefaultAudiencesIncludeRuleService(t *testing.T) {
 	if !slices.Contains(cfg.JWT.Audiences, "data-export-service") {
 		t.Fatalf("JWT audiences = %v, want data-export-service", cfg.JWT.Audiences)
 	}
+	if !slices.Contains(cfg.JWT.Audiences, "import-service") {
+		t.Fatalf("JWT audiences = %v, want import-service", cfg.JWT.Audiences)
+	}
 }
 
 func TestLoad_EnvironmentOverridesFile(t *testing.T) {
