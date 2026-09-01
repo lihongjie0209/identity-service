@@ -109,6 +109,35 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		t.Fatalf("second login status=%d body=%s", status, otherLoginBody)
 	}
 	otherToken, _, _ := responseTokens(t, otherLoginBody)
+	selfRevokeLoginBody, status := postJSONBody(t, baseURL+"/api/v1/auth/login", "", "", `{"login":"alice","password":"correct horse battery staple"}`)
+	if status != http.StatusOK {
+		t.Fatalf("self-revoke login status=%d body=%s", status, selfRevokeLoginBody)
+	}
+	selfRevokeToken, _, selfRevokeSessionID := responseTokens(t, selfRevokeLoginBody)
+	ownedSessionsBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/sessions/list",
+		"Bearer "+token,
+		"",
+		`{"status":"active","page":1,"page_size":20}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("list own sessions status=%d body=%s", status, ownedSessionsBody)
+	}
+	selfRevokeVersion := responseSessionVersion(t, ownedSessionsBody, selfRevokeSessionID)
+	selfRevokeBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/sessions/revoke",
+		"Bearer "+token,
+		"",
+		fmt.Sprintf(`{"session_id":%q,"version":%d}`, selfRevokeSessionID, selfRevokeVersion),
+	)
+	if status != http.StatusOK || !bytes.Contains(selfRevokeBody, []byte(`"status":"revoked"`)) {
+		t.Fatalf("self revoke session status=%d body=%s", status, selfRevokeBody)
+	}
+	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+selfRevokeToken, "", `{}`); status != http.StatusUnauthorized {
+		t.Fatalf("self-revoked session JWT status = %d, want %d", status, http.StatusUnauthorized)
+	}
 	changePasswordBody, status := postJSONBody(
 		t,
 		baseURL+"/api/v1/auth/change-password",
@@ -301,6 +330,28 @@ func responseSession(t *testing.T, data []byte) (string, int64) {
 		t.Fatalf("missing session: %s", data)
 	}
 	return response.Body.Items[0].SessionID, response.Body.Items[0].Version
+}
+
+func responseSessionVersion(t *testing.T, data []byte, sessionID string) int64 {
+	t.Helper()
+	var response struct {
+		Body struct {
+			Items []struct {
+				SessionID string `json:"session_id"`
+				Version   int64  `json:"version"`
+			} `json:"items"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range response.Body.Items {
+		if item.SessionID == sessionID && item.Version > 0 {
+			return item.Version
+		}
+	}
+	t.Fatalf("missing session version for %q: %s", sessionID, data)
+	return 0
 }
 
 func responseIdentityVersion(t *testing.T, data []byte, userID string) int64 {

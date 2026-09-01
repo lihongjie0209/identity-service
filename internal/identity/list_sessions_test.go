@@ -68,6 +68,121 @@ func TestServiceListSessionsRejectsUnknownStatus(t *testing.T) {
 	}
 }
 
+func TestServiceListOwnSessionsBindsAuthenticatedUser(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	service := &Service{repository: NewRepository(sqlx.NewDb(db, "sqlmock")), now: time.Now}
+	now := time.Now().UTC()
+	service.now = func() time.Time { return now }
+	where := " WHERE 1=1 AND user_id = ? AND revoked_at IS NULL AND expires_at > ?"
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM sessions"+where)).
+		WithArgs("user-1", now).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(regexp.QuoteMeta(
+		"SELECT "+sessionColumns+" FROM sessions"+where+
+			" ORDER BY last_used_at DESC, id LIMIT ? OFFSET ?",
+	)).
+		WithArgs("user-1", now, 20, 0).
+		WillReturnRows(sessionRows(now).AddRow(
+			"session-1", "user-1", "refresh-hash", "", "",
+			now.Add(time.Hour), nil, "", 1, now, now, "user-1", "user-1", now,
+		))
+
+	ctx := principal.WithContext(
+		context.Background(),
+		principal.Principal{ID: "user-1", Type: principal.TypeUser},
+	)
+	page, err := service.ListOwnSessions(ctx, "active", 1, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 1 || len(page.Items) != 1 || page.Items[0].UserID != "user-1" {
+		t.Fatalf("ListOwnSessions() = %#v", page)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServiceRevokeOwnSessionBindsUserAndVersion(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	sqlDB := sqlx.NewDb(db, "sqlmock")
+	service, err := NewService(
+		NewRepository(sqlDB),
+		database.NewTransactor(sqlDB),
+		config.Config{
+			App: config.App{Name: "identity-service"},
+			JWT: config.JWT{Issuer: "test", Secret: "01234567890123456789012345678901", TTL: time.Hour},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.September, 2, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	ownedQuery := regexp.QuoteMeta("SELECT " + sessionColumns + " FROM sessions WHERE id = ? AND user_id = ?")
+	mock.ExpectQuery(ownedQuery).
+		WithArgs("session-2", "user-1").
+		WillReturnRows(sessionRows(now).AddRow(
+			"session-2", "user-1", "refresh-hash", "tenant-1", "membership-1",
+			now.Add(time.Hour), nil, "", 3, now, now, "user-1", "user-1", now,
+		))
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE sessions SET revoked_at = ?, revoke_reason = ?, version = version + 1, "+
+			"updated_at = ?, updated_by = ? WHERE id = ? AND user_id = ? AND version = ? AND revoked_at IS NULL",
+	)).
+		WithArgs(now, "user security revocation", now, "user-1", "session-2", "user-1", int64(3)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(
+		"INSERT INTO outbox_events (id, subject, envelope, attempts, available_at, published_at, last_error, version, created_at, updated_at, created_by, updated_by) VALUES (?, ?, ?, 0, ?, NULL, '', ?, ?, ?, ?, ?)",
+	)).
+		WithArgs(
+			sqlmock.AnyArg(),
+			"platform.identity.session.revoked.v1",
+			sqlmock.AnyArg(),
+			now,
+			int64(1),
+			now,
+			now,
+			"user-1",
+			"user-1",
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	revokedAt := now
+	mock.ExpectQuery(ownedQuery).
+		WithArgs("session-2", "user-1").
+		WillReturnRows(sessionRows(now).AddRow(
+			"session-2", "user-1", "refresh-hash", "tenant-1", "membership-1",
+			now.Add(time.Hour), revokedAt, "user security revocation", 4, now, now, "user-1", "user-1", now,
+		))
+
+	ctx := principal.WithContext(
+		context.Background(),
+		principal.Principal{ID: "user-1", Type: principal.TypeUser},
+	)
+	updated, err := service.RevokeOwnSessionByID(ctx, "session-2", "", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.UserID != "user-1" || updated.Version != 4 || updated.RevokedAt == nil {
+		t.Fatalf("RevokeOwnSessionByID() = %#v", updated)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestServiceRevokeSessionByIDUsesExpectedVersionAndWritesOutbox(t *testing.T) {
 	t.Parallel()
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))

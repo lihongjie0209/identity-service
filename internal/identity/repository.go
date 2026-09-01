@@ -375,6 +375,27 @@ func (r *Repository) RevokeSessionByID(
 	return requireAffected(result)
 }
 
+func (r *Repository) RevokeOwnedSessionByID(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	id string,
+	userID string,
+	reason string,
+	actor string,
+	version int64,
+	now time.Time,
+) error {
+	query := r.db.Rebind(
+		"UPDATE sessions SET revoked_at = ?, revoke_reason = ?, version = version + 1, " +
+			"updated_at = ?, updated_by = ? WHERE id = ? AND user_id = ? AND version = ? AND revoked_at IS NULL",
+	)
+	result, err := tx.ExecContext(ctx, query, now, reason, now, actor, id, userID, version)
+	if err != nil {
+		return fmt.Errorf("revoke owned session: %w", err)
+	}
+	return requireAffected(result)
+}
+
 func (r *Repository) RevokeTenantSessions(ctx context.Context, userID, tenantID, reason, actor string, now time.Time) (uint64, error) {
 	result, err := r.db.ExecContext(ctx, r.db.Rebind("UPDATE sessions SET revoked_at = ?, revoke_reason = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE user_id = ? AND tenant_id = ? AND revoked_at IS NULL"), now, reason, now, actor, userID, tenantID)
 	if err != nil {

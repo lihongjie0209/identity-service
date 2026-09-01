@@ -50,6 +50,16 @@ type ListSessionsRequest struct {
 	Page     int    `json:"page"`
 	PageSize int    `json:"page_size"`
 }
+type ListOwnSessionsRequest struct {
+	Status   string `json:"status"`
+	Page     int    `json:"page"`
+	PageSize int    `json:"page_size"`
+}
+type RevokeOwnSessionRequest struct {
+	SessionID string `json:"session_id" binding:"required"`
+	Reason    string `json:"reason"`
+	Version   int64  `json:"version" binding:"required"`
+}
 type RevokeSessionRequest struct {
 	SessionID string `json:"session_id" binding:"required"`
 	Reason    string `json:"reason" binding:"required"`
@@ -301,6 +311,63 @@ func (h *Handler) ListSessions(c *gin.Context) {
 		Page:     page.Page,
 		PageSize: page.PageSize,
 	})
+}
+
+// ListOwnSessions godoc
+// @Summary List sessions owned by the authenticated user
+// @Tags authentication
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body ListOwnSessionsRequest true "Status and pagination"
+// @Success 200 {object} Response{body=SessionPageResponseBody}
+// @Router /api/v1/auth/sessions/list [post]
+func (h *Handler) ListOwnSessions(c *gin.Context) {
+	var req ListOwnSessionsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	page, err := h.identities.ListOwnSessions(c.Request.Context(), req.Status, req.Page, req.PageSize)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	now := time.Now().UTC()
+	items := make([]SessionResponseBody, 0, len(page.Items))
+	for _, session := range page.Items {
+		items = append(items, sessionResponse(session, now))
+	}
+	OK(c, SessionPageResponseBody{Items: items, Total: page.Total, Page: page.Page, PageSize: page.PageSize})
+}
+
+// RevokeOwnSession godoc
+// @Summary Revoke a session owned by the authenticated user
+// @Tags authentication
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body RevokeOwnSessionRequest true "Session and expected version"
+// @Success 200 {object} Response{body=SessionResponseBody}
+// @Failure 409 {object} Response "Code 30009: stale resource version"
+// @Router /api/v1/auth/sessions/revoke [post]
+func (h *Handler) RevokeOwnSession(c *gin.Context) {
+	var req RevokeOwnSessionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	session, err := h.identities.RevokeOwnSessionByID(
+		c.Request.Context(),
+		req.SessionID,
+		req.Reason,
+		req.Version,
+	)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, sessionResponse(session, time.Now().UTC()))
 }
 
 // RevokeSession godoc

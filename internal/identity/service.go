@@ -388,6 +388,72 @@ func (s *Service) ListSessions(
 	}
 	return Page[Session]{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
 }
+
+func (s *Service) ListOwnSessions(ctx context.Context, status string, page, pageSize int) (Page[Session], error) {
+	actor, err := principal.Require(ctx)
+	if err != nil || actor.Type != principal.TypeUser {
+		return Page[Session]{}, apperror.Unauthorized("authenticated user is required")
+	}
+	return s.ListSessions(ctx, actor.ID, "", status, page, pageSize)
+}
+
+func (s *Service) RevokeOwnSessionByID(
+	ctx context.Context,
+	id string,
+	reason string,
+	version int64,
+) (Session, error) {
+	actor, err := principal.Require(ctx)
+	if err != nil || actor.Type != principal.TypeUser {
+		return Session{}, apperror.Unauthorized("authenticated user is required")
+	}
+	id = strings.TrimSpace(id)
+	current, err := s.repository.GetSession(ctx, id, actor.ID)
+	if err != nil {
+		return Session{}, translateIdentityError(err)
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "user security revocation"
+	}
+	now := s.now().UTC()
+	event, err := newOutboxEvent(
+		ctx,
+		"platform.identity.session.revoked.v1",
+		"platform.identity.v1.SessionRevoked",
+		current.ID,
+		now,
+		&identityv1.SessionRevokedEvent{
+			SessionId: current.ID,
+			UserId:    current.UserID,
+			TenantId:  current.TenantID,
+			Reason:    reason,
+		},
+	)
+	if err != nil {
+		return Session{}, apperror.Internal(err)
+	}
+	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+		if err := s.repository.RevokeOwnedSessionByID(
+			ctx,
+			tx,
+			current.ID,
+			actor.ID,
+			reason,
+			actor.ID,
+			version,
+			now,
+		); err != nil {
+			return err
+		}
+		return s.repository.InsertOutbox(ctx, tx, event)
+	})
+	if err != nil {
+		return Session{}, translateIdentityError(err)
+	}
+	return s.repository.GetSession(ctx, current.ID, actor.ID)
+}
+
 func (s *Service) RevokeSessionByID(ctx context.Context, id, reason string, version int64) (Session, error) {
 	actor, err := principal.Require(ctx)
 	if err != nil {
