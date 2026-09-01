@@ -332,6 +332,29 @@ func (r *Repository) RevokeOtherSessions(
 	return uint64(count), nil
 }
 
+func (r *Repository) RevokeUserSessions(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	userID string,
+	reason string,
+	actor string,
+	now time.Time,
+) (uint64, error) {
+	query := r.db.Rebind(
+		"UPDATE sessions SET revoked_at = ?, revoke_reason = ?, version = version + 1, updated_at = ?, updated_by = ? " +
+			"WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ?",
+	)
+	result, err := tx.ExecContext(ctx, query, now, reason, now, actor, userID, now)
+	if err != nil {
+		return 0, fmt.Errorf("revoke user sessions: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("read revoked user sessions: %w", err)
+	}
+	return uint64(count), nil
+}
+
 func (r *Repository) RevokeSessionByID(
 	ctx context.Context,
 	tx *sqlx.Tx,

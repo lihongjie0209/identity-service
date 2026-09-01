@@ -278,3 +278,87 @@ func TestServiceChangePasswordRejectsInvalidCurrentPasswordBeforeWriting(t *test
 		t.Fatal(err)
 	}
 }
+
+func TestServiceUpdateUserStatusRevokesActiveSessionsWhenDisabling(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	sqlDB := sqlx.NewDb(db, "sqlmock")
+	service, err := NewService(
+		NewRepository(sqlDB),
+		database.NewTransactor(sqlDB),
+		config.Config{
+			App: config.App{Name: "identity-service"},
+			JWT: config.JWT{
+				Issuer: "test",
+				Secret: "01234567890123456789012345678901",
+				TTL:    time.Hour,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	userRows := func(status string, version int64) *sqlmock.Rows {
+		return sqlmock.NewRows([]string{
+			"id", "username", "name", "email", "phone", "status", "failed_login_count", "locked_until",
+			"version", "created_at", "updated_at", "created_by", "updated_by",
+		}).AddRow(
+			"user-1", "alice", "Alice", "alice@example.com", "", status, 0, nil, version,
+			now, now, "admin-1", "admin-1",
+		)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT " + userColumns + " FROM users WHERE id = ?")).
+		WithArgs("user-1").
+		WillReturnRows(userRows(StatusActive, 4))
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE users SET status=?, failed_login_count=0, locked_until=NULL, version=version+1, updated_at=?, updated_by=? WHERE id=? AND version=?")).
+		WithArgs(StatusDisabled, sqlmock.AnyArg(), "admin-1", "user-1", int64(4)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE sessions SET revoked_at = ?, revoke_reason = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ?")).
+		WithArgs(
+			sqlmock.AnyArg(),
+			"user status changed to disabled",
+			sqlmock.AnyArg(),
+			"admin-1",
+			"user-1",
+			sqlmock.AnyArg(),
+		).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO outbox_events (id, subject, envelope, attempts, available_at, published_at, last_error, version, created_at, updated_at, created_by, updated_by) VALUES (?, ?, ?, 0, ?, NULL, '', ?, ?, ?, ?, ?)")).
+		WithArgs(
+			sqlmock.AnyArg(),
+			"platform.identity.user.status-changed.v1",
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			int64(1),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			"admin-1",
+			"admin-1",
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT " + userColumns + " FROM users WHERE id = ?")).
+		WithArgs("user-1").
+		WillReturnRows(userRows(StatusDisabled, 5))
+
+	ctx := principal.WithContext(
+		t.Context(),
+		principal.Principal{ID: "admin-1", Type: principal.TypeUser, SessionID: "admin-session"},
+	)
+	updated, err := service.UpdateUserStatus(ctx, "user-1", StatusDisabled, "security review", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != StatusDisabled || updated.Version != 5 {
+		t.Fatalf("UpdateUserStatus() = %#v", updated)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

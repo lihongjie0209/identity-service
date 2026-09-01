@@ -204,6 +204,35 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("new password login status=%d body=%s", status, newPasswordBody)
 	}
+	newPasswordToken, _ := responseTokens(t, newPasswordBody)
+	identitiesBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/identities/list",
+		"Bearer "+newPasswordToken,
+		"",
+		`{"keyword":"alice","status":"active","page":1,"page_size":20}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("list identities status=%d body=%s", status, identitiesBody)
+	}
+	identityVersion := responseIdentityVersion(t, identitiesBody, userID)
+	updateStatusBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/identities/update-status",
+		"Bearer "+newPasswordToken,
+		"",
+		fmt.Sprintf(
+			`{"id":%q,"status":"disabled","reason":"integration lifecycle test","version":%d}`,
+			userID,
+			identityVersion,
+		),
+	)
+	if status != http.StatusOK {
+		t.Fatalf("disable identity status=%d body=%s", status, updateStatusBody)
+	}
+	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+newPasswordToken, "", `{}`); status != http.StatusUnauthorized {
+		t.Fatalf("disabled user session status = %d, want %d", status, http.StatusUnauthorized)
+	}
 }
 
 func responseUserID(t *testing.T, data []byte) string {
@@ -253,6 +282,28 @@ func responseSession(t *testing.T, data []byte) (string, int64) {
 		t.Fatalf("missing session: %s", data)
 	}
 	return response.Body.Items[0].SessionID, response.Body.Items[0].Version
+}
+
+func responseIdentityVersion(t *testing.T, data []byte, userID string) int64 {
+	t.Helper()
+	var response struct {
+		Body struct {
+			Items []struct {
+				ID      string `json:"id"`
+				Version int64  `json:"version"`
+			} `json:"items"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range response.Body.Items {
+		if item.ID == userID && item.Version > 0 {
+			return item.Version
+		}
+	}
+	t.Fatalf("missing identity version for %q: %s", userID, data)
+	return 0
 }
 
 func freeAddress(t *testing.T) string {

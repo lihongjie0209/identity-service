@@ -324,6 +324,18 @@ func (s *Service) UpdateUserStatus(ctx context.Context, id, status, reason strin
 		if err := s.repository.UpdateUserStatus(ctx, tx, id, status, actor.ID, version, now); err != nil {
 			return err
 		}
+		if status != StatusActive {
+			if _, err := s.repository.RevokeUserSessions(
+				ctx,
+				tx,
+				id,
+				"user status changed to "+status,
+				actor.ID,
+				now,
+			); err != nil {
+				return err
+			}
+		}
 		return s.repository.InsertOutbox(ctx, tx, event)
 	})
 	if err != nil {
