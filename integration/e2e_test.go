@@ -103,6 +103,31 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+token, "", `{}`); status != http.StatusOK {
 		t.Fatalf("JWT status = %d", status)
 	}
+	otherLoginBody, status := postJSONBody(t, baseURL+"/api/v1/auth/login", "", "", `{"login":"alice","password":"correct horse battery staple"}`)
+	if status != http.StatusOK {
+		t.Fatalf("second login status=%d body=%s", status, otherLoginBody)
+	}
+	otherToken, _ := responseTokens(t, otherLoginBody)
+	changePasswordBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/change-password",
+		"Bearer "+token,
+		"",
+		`{"current_password":"correct horse battery staple","new_password":"different horse battery staple"}`,
+	)
+	if status != http.StatusOK || !bytes.Contains(changePasswordBody, []byte(`"revoked_sessions":1`)) {
+		t.Fatalf("change password status=%d body=%s", status, changePasswordBody)
+	}
+	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+otherToken, "", `{}`); status != http.StatusUnauthorized {
+		t.Fatalf("other session JWT status = %d, want %d", status, http.StatusUnauthorized)
+	}
+	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+token, "", `{}`); status != http.StatusOK {
+		t.Fatalf("current session JWT after password change status = %d", status)
+	}
+	oldPasswordBody, status := postJSONBody(t, baseURL+"/api/v1/auth/login", "", "", `{"login":"alice","password":"correct horse battery staple"}`)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("old password login status=%d body=%s", status, oldPasswordBody)
+	}
 	serviceAccountBody, status := postJSONBody(
 		t,
 		baseURL+"/api/v1/service-accounts/create",
@@ -173,6 +198,10 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	}
 	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+token, "", `{}`); status != http.StatusUnauthorized {
 		t.Fatalf("revoked session JWT status = %d, want %d", status, http.StatusUnauthorized)
+	}
+	newPasswordBody, status := postJSONBody(t, baseURL+"/api/v1/auth/login", "", "", `{"login":"alice","password":"different horse battery staple"}`)
+	if status != http.StatusOK {
+		t.Fatalf("new password login status=%d body=%s", status, newPasswordBody)
 	}
 }
 

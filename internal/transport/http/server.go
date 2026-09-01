@@ -63,6 +63,7 @@ func NewServer(lc fx.Lifecycle, cfg config.Config, handler *Handler, authService
 	api.POST("/auth/login", RateLimit(limiter, cfg.RateLimit.Login, "login", func(c *gin.Context) string { return c.ClientIP() }, logger), handler.Login)
 	api.POST("/auth/refresh", RateLimit(limiter, cfg.RateLimit.Login, "refresh", func(c *gin.Context) string { return c.ClientIP() }, logger), handler.Refresh)
 	api.POST("/auth/logout", handler.Logout)
+	api.POST("/auth/change-password", handler.ChangePassword)
 	api.POST("/auth/service-token", RateLimit(limiter, cfg.RateLimit.Login, "service-login", func(c *gin.Context) string { return c.ClientIP() }, logger), handler.ServiceAccountToken)
 	api.POST("/sessions/list", handler.ListSessions)
 	api.POST("/sessions/revoke", handler.RevokeSession)

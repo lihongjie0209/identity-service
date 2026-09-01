@@ -29,6 +29,23 @@ definitions:
       status:
         type: string
     type: object
+  httptransport.ChangePasswordRequest:
+    properties:
+      current_password:
+        type: string
+      new_password:
+        type: string
+    required:
+    - current_password
+    - new_password
+    type: object
+  httptransport.ChangePasswordResponseBody:
+    properties:
+      changed:
+        type: boolean
+      revoked_sessions:
+        type: integer
+    type: object
   httptransport.CreateServiceAccountRequest:
     properties:
       audiences:
@@ -345,6 +362,42 @@ paths:
           schema:
             $ref: '#/definitions/identity.JWKS'
       summary: Return active and grace-period verification keys
+      tags:
+      - authentication
+  /api/v1/auth/change-password:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Current and new password
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.ChangePasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.ChangePasswordResponseBody'
+              type: object
+        "400":
+          description: 'Code 10001: invalid password'
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+        "401":
+          description: 'Code 20001: current password is invalid'
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      security:
+      - Bearer: []
+      summary: Change the current user's password and revoke other active sessions
       tags:
       - authentication
   /api/v1/auth/login:

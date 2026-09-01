@@ -34,6 +34,14 @@ type LogoutRequest struct {
 	SessionID string `json:"session_id" binding:"required"`
 	Reason    string `json:"reason"`
 }
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required"`
+}
+type ChangePasswordResponseBody struct {
+	Changed         bool   `json:"changed"`
+	RevokedSessions uint64 `json:"revoked_sessions"`
+}
 type ListSessionsRequest struct {
 	UserID   string `json:"user_id"`
 	TenantID string `json:"tenant_id"`
@@ -212,6 +220,35 @@ func (h *Handler) Logout(c *gin.Context) {
 		return
 	}
 	OK(c, gin.H{"revoked": true})
+}
+
+// ChangePassword godoc
+// @Summary Change the current user's password and revoke other active sessions
+// @Tags authentication
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body ChangePasswordRequest true "Current and new password"
+// @Success 200 {object} Response{body=ChangePasswordResponseBody}
+// @Failure 400 {object} Response "Code 10001: invalid password"
+// @Failure 401 {object} Response "Code 20001: current password is invalid"
+// @Router /api/v1/auth/change-password [post]
+func (h *Handler) ChangePassword(c *gin.Context) {
+	var req ChangePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	revokedSessions, err := h.identities.ChangePassword(
+		c.Request.Context(),
+		req.CurrentPassword,
+		req.NewPassword,
+	)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, ChangePasswordResponseBody{Changed: true, RevokedSessions: revokedSessions})
 }
 
 // ListSessions godoc

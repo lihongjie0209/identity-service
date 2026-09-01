@@ -67,6 +67,38 @@ func (r *Repository) UserByLogin(ctx context.Context, login string) (User, Crede
 	return user, credential, nil
 }
 
+func (r *Repository) PasswordCredential(ctx context.Context, userID string) (Credential, error) {
+	var credential Credential
+	query := r.db.Rebind("SELECT id, user_id, type, secret_hash, status, version, created_at, updated_at, created_by, updated_by FROM credentials WHERE user_id = ? AND type = 'password'")
+	if err := r.db.GetContext(ctx, &credential, query, userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Credential{}, ErrNotFound
+		}
+		return Credential{}, fmt.Errorf("select password credential: %w", err)
+	}
+	return credential, nil
+}
+
+func (r *Repository) UpdatePasswordCredential(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	credentialID string,
+	secretHash string,
+	actor string,
+	version int64,
+	now time.Time,
+) error {
+	query := r.db.Rebind(
+		"UPDATE credentials SET secret_hash = ?, version = version + 1, updated_at = ?, updated_by = ? " +
+			"WHERE id = ? AND type = 'password' AND status = ? AND version = ?",
+	)
+	result, err := tx.ExecContext(ctx, query, secretHash, now, actor, credentialID, StatusActive, version)
+	if err != nil {
+		return fmt.Errorf("update password credential: %w", err)
+	}
+	return requireAffected(result)
+}
+
 func (r *Repository) GetUser(ctx context.Context, id string) (User, error) {
 	var user User
 	if err := r.db.GetContext(ctx, &user, r.db.Rebind("SELECT "+userColumns+" FROM users WHERE id = ?"), id); err != nil {
@@ -274,6 +306,30 @@ func (r *Repository) RevokeSession(ctx context.Context, tx *sqlx.Tx, id, userID,
 		return fmt.Errorf("revoke session: %w", err)
 	}
 	return requireAffected(result)
+}
+
+func (r *Repository) RevokeOtherSessions(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	userID string,
+	currentSessionID string,
+	reason string,
+	actor string,
+	now time.Time,
+) (uint64, error) {
+	query := r.db.Rebind(
+		"UPDATE sessions SET revoked_at = ?, revoke_reason = ?, version = version + 1, updated_at = ?, updated_by = ? " +
+			"WHERE user_id = ? AND id <> ? AND revoked_at IS NULL AND expires_at > ?",
+	)
+	result, err := tx.ExecContext(ctx, query, now, reason, now, actor, userID, currentSessionID, now)
+	if err != nil {
+		return 0, fmt.Errorf("revoke other sessions: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("read revoked other sessions: %w", err)
+	}
+	return uint64(count), nil
 }
 
 func (r *Repository) RevokeSessionByID(

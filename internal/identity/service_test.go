@@ -148,3 +148,133 @@ func TestServiceLoginRecordsFailureBeforeRejectingCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestServiceChangePasswordUpdatesCredentialAndRevokesOtherSessions(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	sqlDB := sqlx.NewDb(db, "sqlmock")
+	service, err := NewService(
+		NewRepository(sqlDB),
+		database.NewTransactor(sqlDB),
+		config.Config{
+			App: config.App{Name: "identity-service"},
+			JWT: config.JWT{
+				Issuer: "test",
+				Secret: "01234567890123456789012345678901",
+				TTL:    time.Hour,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.hasher, err = NewPasswordHasher(PasswordParameters{
+		Memory:      8 * 1024,
+		Iterations:  1,
+		Parallelism: 1,
+		SaltLength:  16,
+		KeyLength:   16,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentHash, err := service.hasher.Hash("current horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, user_id, type, secret_hash, status, version, created_at, updated_at, created_by, updated_by FROM credentials WHERE user_id = ? AND type = 'password'")).
+		WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "type", "secret_hash", "status", "version", "created_at", "updated_at", "created_by", "updated_by"}).
+			AddRow("credential-1", "user-1", "password", currentHash, StatusActive, 3, now, now, "admin", "admin"))
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE credentials SET secret_hash = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ? AND type = 'password' AND status = ? AND version = ?")).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "user-1", "credential-1", StatusActive, int64(3)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE sessions SET revoked_at = ?, revoke_reason = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE user_id = ? AND id <> ? AND revoked_at IS NULL AND expires_at > ?")).
+		WithArgs(sqlmock.AnyArg(), "password changed", sqlmock.AnyArg(), "user-1", "user-1", "session-current", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO outbox_events (id, subject, envelope, attempts, available_at, published_at, last_error, version, created_at, updated_at, created_by, updated_by) VALUES (?, ?, ?, 0, ?, NULL, '', ?, ?, ?, ?, ?)")).
+		WithArgs(sqlmock.AnyArg(), "platform.identity.user.password-changed.v1", sqlmock.AnyArg(), sqlmock.AnyArg(), int64(1), sqlmock.AnyArg(), sqlmock.AnyArg(), "user-1", "user-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	ctx := principal.WithContext(
+		t.Context(),
+		principal.Principal{ID: "user-1", Type: principal.TypeUser, SessionID: "session-current"},
+	)
+	revoked, err := service.ChangePassword(
+		ctx,
+		"current horse battery staple",
+		"different horse battery staple",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revoked != 2 {
+		t.Fatalf("ChangePassword() revoked = %d, want 2", revoked)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServiceChangePasswordRejectsInvalidCurrentPasswordBeforeWriting(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	sqlDB := sqlx.NewDb(db, "sqlmock")
+	service, err := NewService(
+		NewRepository(sqlDB),
+		database.NewTransactor(sqlDB),
+		config.Config{
+			App: config.App{Name: "identity-service"},
+			JWT: config.JWT{
+				Issuer: "test",
+				Secret: "01234567890123456789012345678901",
+				TTL:    time.Hour,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.hasher, err = NewPasswordHasher(PasswordParameters{
+		Memory:      8 * 1024,
+		Iterations:  1,
+		Parallelism: 1,
+		SaltLength:  16,
+		KeyLength:   16,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentHash, err := service.hasher.Hash("current horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id, user_id, type, secret_hash, status, version, created_at, updated_at, created_by, updated_by FROM credentials WHERE user_id = ? AND type = 'password'")).
+		WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "type", "secret_hash", "status", "version", "created_at", "updated_at", "created_by", "updated_by"}).
+			AddRow("credential-1", "user-1", "password", currentHash, StatusActive, 3, now, now, "admin", "admin"))
+
+	ctx := principal.WithContext(
+		t.Context(),
+		principal.Principal{ID: "user-1", Type: principal.TypeUser, SessionID: "session-current"},
+	)
+	_, err = service.ChangePassword(ctx, "wrong horse battery staple", "different horse battery staple")
+	if identityErrorCode(err) != apperror.CodeUnauthorized {
+		t.Fatalf("ChangePassword() error = %#v, want unauthorized", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

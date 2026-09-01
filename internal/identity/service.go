@@ -206,6 +206,83 @@ func (s *Service) Logout(ctx context.Context, sessionID, reason string) error {
 	return nil
 }
 
+func (s *Service) ChangePassword(ctx context.Context, currentPassword, newPassword string) (uint64, error) {
+	actor, err := principal.Require(ctx)
+	if err != nil || actor.Type != principal.TypeUser || actor.SessionID == "" {
+		return 0, apperror.Unauthorized("authenticated user session is required")
+	}
+	credential, err := s.repository.PasswordCredential(ctx, actor.ID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return 0, apperror.Unauthorized("current password is invalid")
+		}
+		return 0, translateIdentityError(err)
+	}
+	if credential.Status != StatusActive {
+		return 0, apperror.Unauthorized("current password is invalid")
+	}
+	valid, _, err := s.hasher.Verify(currentPassword, credential.SecretHash)
+	if err != nil || !valid {
+		return 0, apperror.Unauthorized("current password is invalid")
+	}
+	samePassword, _, err := s.hasher.Verify(newPassword, credential.SecretHash)
+	if err != nil {
+		return 0, apperror.Invalid("new password is invalid", err)
+	}
+	if samePassword {
+		return 0, apperror.Invalid("new password must differ from current password", nil)
+	}
+	secretHash, err := s.hasher.Hash(newPassword)
+	if err != nil {
+		return 0, apperror.Invalid(err.Error(), err)
+	}
+
+	now := s.now().UTC()
+	var revokedSessions uint64
+	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+		if err := s.repository.UpdatePasswordCredential(
+			ctx,
+			tx,
+			credential.ID,
+			secretHash,
+			actor.ID,
+			credential.Version,
+			now,
+		); err != nil {
+			return err
+		}
+		count, err := s.repository.RevokeOtherSessions(
+			ctx,
+			tx,
+			actor.ID,
+			actor.SessionID,
+			"password changed",
+			actor.ID,
+			now,
+		)
+		if err != nil {
+			return err
+		}
+		revokedSessions = count
+		event, err := newOutboxEvent(
+			ctx,
+			"platform.identity.user.password-changed.v1",
+			"platform.identity.v1.PasswordChanged",
+			actor.ID,
+			now,
+			&identityv1.PasswordChangedEvent{UserId: actor.ID, RevokedSessions: count},
+		)
+		if err != nil {
+			return err
+		}
+		return s.repository.InsertOutbox(ctx, tx, event)
+	})
+	if err != nil {
+		return 0, translateIdentityError(err)
+	}
+	return revokedSessions, nil
+}
+
 func (s *Service) GetUser(ctx context.Context, id string) (User, error) {
 	user, err := s.repository.GetUser(ctx, id)
 	return user, translateIdentityError(err)
