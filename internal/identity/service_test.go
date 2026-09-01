@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"slices"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/jmoiron/sqlx"
+	"github.com/lihongjie0209/identity-service/internal/apperror"
 	"github.com/lihongjie0209/identity-service/internal/config"
 	"github.com/lihongjie0209/identity-service/internal/database"
 	"github.com/lihongjie0209/microservice-platform-go/principal"
@@ -69,6 +71,37 @@ func TestServiceIssuesTokenForConfiguredServiceAudiences(t *testing.T) {
 			t.Fatalf("token audiences %v do not contain %q", claims.Audience, audience)
 		}
 	}
+}
+
+func TestIssueTenantTokenRequiresTrustedService(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewService(nil, nil, config.Config{App: config.App{Name: "identity-service"}, JWT: config.JWT{Issuer: "test", Secret: "01234567890123456789012345678901", TTL: time.Hour}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userContext := principal.WithContext(t.Context(), principal.Principal{ID: "user-1", Type: principal.TypeUser})
+	if _, _, err := service.IssueTenantToken(userContext, "user-1", "tenant-1", "membership-1"); identityErrorCode(err) != apperror.CodeForbidden {
+		t.Fatalf("IssueTenantToken(user) error = %#v, want forbidden", err)
+	}
+
+	serviceContext := principal.WithContext(t.Context(), principal.Principal{ID: "tenant-service", Type: principal.TypeServiceAccount})
+	token, _, err := service.IssueTenantToken(serviceContext, "user-1", "tenant-1", "membership-1")
+	if err != nil || token == "" {
+		t.Fatalf("IssueTenantToken(service) token empty=%v error=%v", token == "", err)
+	}
+	if _, _, err := service.IssueTenantToken(serviceContext, "user-1", "", "membership-1"); identityErrorCode(err) != apperror.CodeInvalidArgument {
+		t.Fatalf("IssueTenantToken(invalid scope) error = %#v, want invalid", err)
+	}
+}
+
+func identityErrorCode(err error) int {
+	var appErr *apperror.Error
+	if errors.As(err, &appErr) {
+		return appErr.Code
+	}
+	return 0
 }
 
 func TestServiceLoginRecordsFailureBeforeRejectingCredentials(t *testing.T) {

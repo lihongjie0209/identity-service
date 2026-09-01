@@ -361,8 +361,12 @@ func (s *Service) IssueTenantToken(ctx context.Context, userID, tenantID, member
 	if err != nil {
 		return "", time.Time{}, apperror.Unauthorized("authenticated actor is required")
 	}
-	if actor.ID != userID && actor.Type != principal.TypeServiceAccount {
-		return "", time.Time{}, apperror.New(apperror.CodeForbidden, "cannot issue token for another user", 403, nil)
+	if actor.Type != principal.TypeServiceAccount && actor.Type != principal.TypeSystem {
+		return "", time.Time{}, apperror.New(apperror.CodeForbidden, "tenant tokens may only be issued by a trusted service", 403, nil)
+	}
+	userID, tenantID, membershipID = strings.TrimSpace(userID), strings.TrimSpace(tenantID), strings.TrimSpace(membershipID)
+	if userID == "" || tenantID == "" || membershipID == "" {
+		return "", time.Time{}, apperror.Invalid("user_id, tenant_id, and membership_id are required", nil)
 	}
 	return s.issuer.Issue(userID, "user", actor.SessionID, tenantID, membershipID)
 }
