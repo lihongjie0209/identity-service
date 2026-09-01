@@ -94,7 +94,7 @@ func (s *identityServer) RevokeTenantSessions(ctx context.Context, request *iden
 }
 
 func (s *identityServer) IssueTenantToken(ctx context.Context, request *identityv1.IssueTenantTokenRequest) (*identityv1.IssueTenantTokenResponse, error) {
-	token, expiresAt, err := s.service.IssueTenantToken(ctx, request.GetUserId(), request.GetTenantId(), request.GetMembershipId())
+	token, expiresAt, err := s.service.IssueTenantToken(ctx, request.GetUserId(), request.GetTenantId(), request.GetMembershipId(), request.GetSessionId())
 	if err != nil {
 		return nil, grpcError(err)
 	}

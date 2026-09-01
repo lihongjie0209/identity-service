@@ -260,6 +260,14 @@ func (r *Repository) RotateSession(ctx context.Context, tx *sqlx.Tx, session Ses
 	return requireAffected(result)
 }
 
+func (r *Repository) ScopeSession(ctx context.Context, tx *sqlx.Tx, sessionID, userID, tenantID, membershipID, actor string, now time.Time) error {
+	result, err := tx.ExecContext(ctx, r.db.Rebind("UPDATE sessions SET tenant_id = ?, membership_id = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL AND expires_at > ?"), tenantID, membershipID, now, actor, sessionID, userID, now)
+	if err != nil {
+		return fmt.Errorf("scope session to tenant: %w", err)
+	}
+	return requireAffected(result)
+}
+
 func (r *Repository) RevokeSession(ctx context.Context, tx *sqlx.Tx, id, userID, reason, actor string, now time.Time) error {
 	result, err := tx.ExecContext(ctx, r.db.Rebind("UPDATE sessions SET revoked_at = ?, revoke_reason = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL"), now, reason, now, actor, id, userID)
 	if err != nil {

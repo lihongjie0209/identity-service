@@ -76,23 +76,35 @@ func TestServiceIssuesTokenForConfiguredServiceAudiences(t *testing.T) {
 func TestIssueTenantTokenRequiresTrustedService(t *testing.T) {
 	t.Parallel()
 
-	service, err := NewService(nil, nil, config.Config{App: config.App{Name: "identity-service"}, JWT: config.JWT{Issuer: "test", Secret: "01234567890123456789012345678901", TTL: time.Hour}})
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	sqlDB := sqlx.NewDb(db, "sqlmock")
+	service, err := NewService(NewRepository(sqlDB), database.NewTransactor(sqlDB), config.Config{App: config.App{Name: "identity-service"}, JWT: config.JWT{Issuer: "test", Secret: "01234567890123456789012345678901", TTL: time.Hour}})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	userContext := principal.WithContext(t.Context(), principal.Principal{ID: "user-1", Type: principal.TypeUser})
-	if _, _, err := service.IssueTenantToken(userContext, "user-1", "tenant-1", "membership-1"); identityErrorCode(err) != apperror.CodeForbidden {
+	if _, _, err := service.IssueTenantToken(userContext, "user-1", "tenant-1", "membership-1", "session-1"); identityErrorCode(err) != apperror.CodeForbidden {
 		t.Fatalf("IssueTenantToken(user) error = %#v, want forbidden", err)
 	}
 
 	serviceContext := principal.WithContext(t.Context(), principal.Principal{ID: "tenant-service", Type: principal.TypeServiceAccount})
-	token, _, err := service.IssueTenantToken(serviceContext, "user-1", "tenant-1", "membership-1")
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE sessions SET tenant_id = ?, membership_id = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL AND expires_at > ?")).WithArgs("tenant-1", "membership-1", sqlmock.AnyArg(), "tenant-service", "session-1", "user-1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	token, _, err := service.IssueTenantToken(serviceContext, "user-1", "tenant-1", "membership-1", "session-1")
 	if err != nil || token == "" {
 		t.Fatalf("IssueTenantToken(service) token empty=%v error=%v", token == "", err)
 	}
-	if _, _, err := service.IssueTenantToken(serviceContext, "user-1", "", "membership-1"); identityErrorCode(err) != apperror.CodeInvalidArgument {
+	if _, _, err := service.IssueTenantToken(serviceContext, "user-1", "", "membership-1", "session-1"); identityErrorCode(err) != apperror.CodeInvalidArgument {
 		t.Fatalf("IssueTenantToken(invalid scope) error = %#v, want invalid", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 

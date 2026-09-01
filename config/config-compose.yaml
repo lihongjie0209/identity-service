@@ -27,3 +27,4 @@ auth:
     enabled: true
     key: local-system-test-psk-00000000000000000000
     http_paths: [/api/v1/identities/register]
+    grpc_methods: [/platform.identity.v1.IdentityService/IssueTenantToken]

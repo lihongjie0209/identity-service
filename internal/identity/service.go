@@ -356,7 +356,7 @@ func (s *Service) RevokeTenantSessions(ctx context.Context, userID, tenantID, re
 	count, err := s.repository.RevokeTenantSessions(ctx, userID, tenantID, reason, actor.ID, s.now().UTC())
 	return count, translateIdentityError(err)
 }
-func (s *Service) IssueTenantToken(ctx context.Context, userID, tenantID, membershipID string) (string, time.Time, error) {
+func (s *Service) IssueTenantToken(ctx context.Context, userID, tenantID, membershipID, sessionID string) (string, time.Time, error) {
 	actor, err := principal.Require(ctx)
 	if err != nil {
 		return "", time.Time{}, apperror.Unauthorized("authenticated actor is required")
@@ -364,11 +364,21 @@ func (s *Service) IssueTenantToken(ctx context.Context, userID, tenantID, member
 	if actor.Type != principal.TypeServiceAccount && actor.Type != principal.TypeSystem {
 		return "", time.Time{}, apperror.New(apperror.CodeForbidden, "tenant tokens may only be issued by a trusted service", 403, nil)
 	}
-	userID, tenantID, membershipID = strings.TrimSpace(userID), strings.TrimSpace(tenantID), strings.TrimSpace(membershipID)
-	if userID == "" || tenantID == "" || membershipID == "" {
-		return "", time.Time{}, apperror.Invalid("user_id, tenant_id, and membership_id are required", nil)
+	userID, tenantID, membershipID, sessionID = strings.TrimSpace(userID), strings.TrimSpace(tenantID), strings.TrimSpace(membershipID), strings.TrimSpace(sessionID)
+	if userID == "" || tenantID == "" || membershipID == "" || sessionID == "" {
+		return "", time.Time{}, apperror.Invalid("user_id, tenant_id, membership_id, and session_id are required", nil)
 	}
-	return s.issuer.Issue(userID, "user", actor.SessionID, tenantID, membershipID)
+	token, expiresAt, err := s.issuer.Issue(userID, "user", sessionID, tenantID, membershipID)
+	if err != nil {
+		return "", time.Time{}, apperror.Internal(err)
+	}
+	now := s.now().UTC()
+	if err := s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+		return s.repository.ScopeSession(ctx, tx, sessionID, userID, tenantID, membershipID, actor.ID, now)
+	}); err != nil {
+		return "", time.Time{}, translateIdentityError(err)
+	}
+	return token, expiresAt, nil
 }
 func (s *Service) GetServiceAccount(ctx context.Context, id string) (ServiceAccount, error) {
 	account, err := s.repository.GetServiceAccount(ctx, id)
