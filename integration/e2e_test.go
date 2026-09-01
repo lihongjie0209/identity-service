@@ -99,7 +99,7 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("login status=%d body=%s", status, loginBody)
 	}
-	token, refresh := responseTokens(t, loginBody)
+	token, refresh, _ := responseTokens(t, loginBody)
 	meBody, status := postJSONBody(t, baseURL+"/api/v1/me", "Bearer "+token, "", `{}`)
 	if status != http.StatusOK || !bytes.Contains(meBody, []byte(`"username":"alice"`)) {
 		t.Fatalf("JWT profile status=%d body=%s", status, meBody)
@@ -108,7 +108,7 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("second login status=%d body=%s", status, otherLoginBody)
 	}
-	otherToken, _ := responseTokens(t, otherLoginBody)
+	otherToken, _, _ := responseTokens(t, otherLoginBody)
 	changePasswordBody, status := postJSONBody(
 		t,
 		baseURL+"/api/v1/auth/change-password",
@@ -204,7 +204,25 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("new password login status=%d body=%s", status, newPasswordBody)
 	}
-	newPasswordToken, _ := responseTokens(t, newPasswordBody)
+	logoutToken, _, logoutSessionID := responseTokens(t, newPasswordBody)
+	logoutBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/logout",
+		"Bearer "+logoutToken,
+		"",
+		fmt.Sprintf(`{"session_id":%q,"reason":"user logout"}`, logoutSessionID),
+	)
+	if status != http.StatusOK || !bytes.Contains(logoutBody, []byte(`"revoked":true`)) {
+		t.Fatalf("logout status=%d body=%s", status, logoutBody)
+	}
+	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+logoutToken, "", `{}`); status != http.StatusUnauthorized {
+		t.Fatalf("logged out session status = %d, want %d", status, http.StatusUnauthorized)
+	}
+	lifecycleLoginBody, status := postJSONBody(t, baseURL+"/api/v1/auth/login", "", "", `{"login":"alice","password":"different horse battery staple"}`)
+	if status != http.StatusOK {
+		t.Fatalf("lifecycle login status=%d body=%s", status, lifecycleLoginBody)
+	}
+	newPasswordToken, _, _ := responseTokens(t, lifecycleLoginBody)
 	identitiesBody, status := postJSONBody(
 		t,
 		baseURL+"/api/v1/identities/list",
@@ -248,21 +266,22 @@ func responseUserID(t *testing.T, data []byte) string {
 	return response.Body.ID
 }
 
-func responseTokens(t *testing.T, data []byte) (string, string) {
+func responseTokens(t *testing.T, data []byte) (string, string, string) {
 	t.Helper()
 	var response struct {
 		Body struct {
 			AccessToken  string `json:"access_token"`
 			RefreshToken string `json:"refresh_token"`
+			SessionID    string `json:"session_id"`
 		} `json:"body"`
 	}
 	if err := json.Unmarshal(data, &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Body.AccessToken == "" || response.Body.RefreshToken == "" {
+	if response.Body.AccessToken == "" || response.Body.RefreshToken == "" || response.Body.SessionID == "" {
 		t.Fatalf("missing tokens: %s", data)
 	}
-	return response.Body.AccessToken, response.Body.RefreshToken
+	return response.Body.AccessToken, response.Body.RefreshToken, response.Body.SessionID
 }
 
 func responseSession(t *testing.T, data []byte) (string, int64) {
