@@ -153,14 +153,14 @@ type LoginResponseBody struct {
 type MeResponseBody struct {
 	Subject      string   `json:"subject"`
 	SubjectType  string   `json:"subject_type"`
-	SessionID    string   `json:"session_id,omitempty"`
-	TenantID     string   `json:"tenant_id,omitempty"`
-	MembershipID string   `json:"membership_id,omitempty"`
-	Username     string   `json:"username,omitempty"`
-	DisplayName  string   `json:"display_name,omitempty"`
-	Email        string   `json:"email,omitempty"`
-	Phone        string   `json:"phone,omitempty"`
-	Status       string   `json:"status,omitempty"`
+	SessionID    string   `json:"session_id"`
+	TenantID     string   `json:"tenant_id"`
+	MembershipID string   `json:"membership_id"`
+	Username     string   `json:"username"`
+	DisplayName  string   `json:"display_name"`
+	Email        string   `json:"email"`
+	Phone        string   `json:"phone"`
+	Status       string   `json:"status"`
 	Roles        []string `json:"roles"`
 	Buttons      []string `json:"buttons"`
 }

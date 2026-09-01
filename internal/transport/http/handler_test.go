@@ -134,8 +134,8 @@ func TestHandlerMeDoesNotTreatServiceAccountAsUser(t *testing.T) {
 	if !strings.Contains(recorder.Body.String(), `"subject_type":"service_account"`) {
 		t.Fatalf("body = %s", recorder.Body.String())
 	}
-	if strings.Contains(recorder.Body.String(), `"username"`) {
-		t.Fatalf("service account response exposed user fields: %s", recorder.Body.String())
+	if !strings.Contains(recorder.Body.String(), `"username":""`) {
+		t.Fatalf("service account response does not have a stable profile shape: %s", recorder.Body.String())
 	}
 }
 
