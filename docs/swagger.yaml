@@ -138,7 +138,33 @@ definitions:
     type: object
   httptransport.MeResponseBody:
     properties:
+      buttons:
+        items:
+          type: string
+        type: array
+      display_name:
+        type: string
+      email:
+        type: string
+      membership_id:
+        type: string
+      phone:
+        type: string
+      roles:
+        items:
+          type: string
+        type: array
+      session_id:
+        type: string
+      status:
+        type: string
       subject:
+        type: string
+      subject_type:
+        type: string
+      tenant_id:
+        type: string
+      username:
         type: string
     type: object
   httptransport.RefreshRequest:
@@ -608,7 +634,7 @@ paths:
             $ref: '#/definitions/httptransport.Response'
       security:
       - Bearer: []
-      summary: Return the authenticated subject
+      summary: Return the authenticated subject and current user profile
       tags:
       - authentication
   /api/v1/service-accounts/create:

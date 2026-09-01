@@ -10,6 +10,7 @@ import (
 	"github.com/lihongjie0209/identity-service/internal/buildinfo"
 	"github.com/lihongjie0209/identity-service/internal/health"
 	identitydomain "github.com/lihongjie0209/identity-service/internal/identity"
+	"github.com/lihongjie0209/microservice-platform-go/principal"
 )
 
 type Handler struct {
@@ -150,7 +151,18 @@ type LoginResponseBody struct {
 	TokenType   string `json:"token_type"`
 }
 type MeResponseBody struct {
-	Subject string `json:"subject"`
+	Subject      string   `json:"subject"`
+	SubjectType  string   `json:"subject_type"`
+	SessionID    string   `json:"session_id,omitempty"`
+	TenantID     string   `json:"tenant_id,omitempty"`
+	MembershipID string   `json:"membership_id,omitempty"`
+	Username     string   `json:"username,omitempty"`
+	DisplayName  string   `json:"display_name,omitempty"`
+	Email        string   `json:"email,omitempty"`
+	Phone        string   `json:"phone,omitempty"`
+	Status       string   `json:"status,omitempty"`
+	Roles        []string `json:"roles"`
+	Buttons      []string `json:"buttons"`
 }
 
 // Login godoc
@@ -531,7 +543,7 @@ func (h *Handler) Ready(c *gin.Context) {
 }
 
 // Me godoc
-// @Summary Return the authenticated subject
+// @Summary Return the authenticated subject and current user profile
 // @Tags authentication
 // @Produce json
 // @Security Bearer
@@ -539,8 +551,33 @@ func (h *Handler) Ready(c *gin.Context) {
 // @Failure 401 {object} Response "Code 20001: unauthorized"
 // @Router /api/v1/me [post]
 func (h *Handler) Me(c *gin.Context) {
-	subject, _ := c.Get("subject")
-	OK(c, gin.H{"subject": subject})
+	actor, err := principal.Require(c.Request.Context())
+	if err != nil {
+		Fail(c, h.logger, apperror.Unauthorized("authenticated actor is required"))
+		return
+	}
+	response := MeResponseBody{
+		Subject:      actor.ID,
+		SubjectType:  string(actor.Type),
+		SessionID:    actor.SessionID,
+		TenantID:     actor.TenantID,
+		MembershipID: actor.MembershipID,
+		Roles:        []string{},
+		Buttons:      []string{},
+	}
+	if actor.Type == principal.TypeUser {
+		user, err := h.identities.GetUser(c.Request.Context(), actor.ID)
+		if err != nil {
+			Fail(c, h.logger, err)
+			return
+		}
+		response.Username = user.Username
+		response.DisplayName = user.DisplayName
+		response.Email = user.Email
+		response.Phone = user.Phone
+		response.Status = user.Status
+	}
+	OK(c, response)
 }
 
 // Version godoc

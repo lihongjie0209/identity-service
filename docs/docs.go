@@ -429,7 +429,7 @@ const docTemplate = `{
                 "tags": [
                     "authentication"
                 ],
-                "summary": "Return the authenticated subject",
+                "summary": "Return the authenticated subject and current user profile",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -1027,7 +1027,46 @@ const docTemplate = `{
         "httptransport.MeResponseBody": {
             "type": "object",
             "properties": {
+                "buttons": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "membership_id": {
+                    "type": "string"
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
                 "subject": {
+                    "type": "string"
+                },
+                "subject_type": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 }
             }

@@ -100,8 +100,9 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		t.Fatalf("login status=%d body=%s", status, loginBody)
 	}
 	token, refresh := responseTokens(t, loginBody)
-	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+token, "", `{}`); status != http.StatusOK {
-		t.Fatalf("JWT status = %d", status)
+	meBody, status := postJSONBody(t, baseURL+"/api/v1/me", "Bearer "+token, "", `{}`)
+	if status != http.StatusOK || !bytes.Contains(meBody, []byte(`"username":"alice"`)) {
+		t.Fatalf("JWT profile status=%d body=%s", status, meBody)
 	}
 	otherLoginBody, status := postJSONBody(t, baseURL+"/api/v1/auth/login", "", "", `{"login":"alice","password":"correct horse battery staple"}`)
 	if status != http.StatusOK {
