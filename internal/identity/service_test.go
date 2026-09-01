@@ -100,6 +100,10 @@ func TestIssueTenantTokenRequiresTrustedService(t *testing.T) {
 	if err != nil || token == "" {
 		t.Fatalf("IssueTenantToken(service) token empty=%v error=%v", token == "", err)
 	}
+	claims, err := service.issuer.Parse(token)
+	if err != nil || claims.TenantID != "tenant-1" || claims.MembershipID != "membership-1" || claims.SessionID != "session-1" {
+		t.Fatalf("tenant token claims = %+v error=%v", claims, err)
+	}
 	if _, _, err := service.IssueTenantToken(serviceContext, "user-1", "", "membership-1", "session-1"); identityErrorCode(err) != apperror.CodeInvalidArgument {
 		t.Fatalf("IssueTenantToken(invalid scope) error = %#v, want invalid", err)
 	}
