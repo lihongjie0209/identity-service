@@ -38,6 +38,21 @@ func TestIdentityHTTPRequirementCoversAdministrationOnly(t *testing.T) {
 	}
 }
 
+func TestAdministrativeMFARecoveryUsesOneDedicatedPermission(t *testing.T) {
+	t.Parallel()
+	statusRequirement, statusOK := identityHTTPRequirement("/api/v1/identities/mfa/status")
+	resetRequirement, resetOK := identityHTTPRequirement("/api/v1/identities/mfa/reset")
+	if !statusOK || !resetOK ||
+		statusRequirement.Resource != resetRequirement.Resource ||
+		statusRequirement.Action != resetRequirement.Action ||
+		statusRequirement.Scope != resetRequirement.Scope {
+		t.Fatalf("mfa recovery requirements = status %+v reset %+v", statusRequirement, resetRequirement)
+	}
+	if statusRequirement.Resource != "identity.user" || statusRequirement.Action != "mfa-reset" {
+		t.Fatalf("mfa recovery requirement = %+v", statusRequirement)
+	}
+}
+
 func TestAuthorizationFailsClosedAndClassifiesOutage(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
