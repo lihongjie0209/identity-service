@@ -161,6 +161,47 @@ func TestRepositoryDisableMFARequiresNewStepAndExpectedVersion(t *testing.T) {
 	}
 }
 
+func TestRepositoryRecoveryCodeRotationRequiresNewStepAndExpectedVersion(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	sqlDB := sqlx.NewDb(db, "sqlmock")
+	repository := NewRepository(sqlDB)
+	now := time.Date(2026, time.September, 2, 10, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	tx, err := sqlDB.BeginTxx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE user_mfa SET last_used_step = ?, version = version + 1, updated_at = ?, updated_by = ? "+
+			"WHERE user_id = ? AND status = ? AND last_used_step < ? AND version = ?",
+	)).
+		WithArgs(int64(124), now, "user-1", "user-1", MFAStatusEnabled, int64(124), int64(7)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := repository.AdvanceMFAStepAtVersion(
+		t.Context(),
+		tx,
+		"user-1",
+		124,
+		"user-1",
+		7,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRepositoryConsumeMFAChallengeRequiresExpiryAndVersion(t *testing.T) {
 	t.Parallel()
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))

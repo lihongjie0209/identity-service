@@ -62,6 +62,11 @@ type MFAConfirmation struct {
 	Version         int64
 }
 
+type MFARecoveryRotation struct {
+	RecoveryCodes []string
+	Version       int64
+}
+
 type LoginResult struct {
 	Tokens             Tokens
 	MFARequired        bool

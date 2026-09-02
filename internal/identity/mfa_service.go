@@ -417,6 +417,93 @@ func (s *Service) DisableMFA(
 	return revokedSessions, nil
 }
 
+func (s *Service) RegenerateMFARecoveryCodes(
+	ctx context.Context,
+	currentPassword string,
+	code string,
+	version int64,
+) (MFARecoveryRotation, error) {
+	actor, err := requireMFAUser(ctx)
+	if err != nil {
+		return MFARecoveryRotation{}, err
+	}
+	if s.mfa == nil {
+		return MFARecoveryRotation{}, apperror.Unavailable("mfa is not configured", nil)
+	}
+	if err := s.verifyCurrentPassword(ctx, actor.ID, currentPassword); err != nil {
+		return MFARecoveryRotation{}, err
+	}
+	enrollment, err := s.repository.GetMFA(ctx, actor.ID)
+	if err != nil {
+		return MFARecoveryRotation{}, translateIdentityError(err)
+	}
+	if enrollment.Status != MFAStatusEnabled {
+		return MFARecoveryRotation{}, apperror.Invalid("mfa is not enabled", nil)
+	}
+	secret, err := s.mfa.DecryptSecret(actor.ID, enrollment.SecretCiphertext)
+	if err != nil {
+		return MFARecoveryRotation{}, apperror.Internal(err)
+	}
+	now := s.now().UTC()
+	step, valid := s.mfa.ValidateTOTP(secret, strings.TrimSpace(code), now)
+	if !valid || step <= enrollment.LastUsedStep {
+		return MFARecoveryRotation{}, apperror.Unauthorized("invalid or already used mfa code")
+	}
+	codes, hashes, err := s.mfa.GenerateRecoveryCodes()
+	if err != nil {
+		return MFARecoveryRotation{}, apperror.Internal(err)
+	}
+	fields, err := audit.New(ctx, now)
+	if err != nil {
+		return MFARecoveryRotation{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	recoveryCodes := make([]MFARecoveryCode, 0, len(hashes))
+	for _, hash := range hashes {
+		recoveryCodes = append(recoveryCodes, MFARecoveryCode{
+			ID:       uuid.NewString(),
+			UserID:   actor.ID,
+			CodeHash: hash,
+			Fields:   fields,
+		})
+	}
+	event, err := newOutboxEvent(
+		ctx,
+		"platform.identity.mfa.status-changed.v1",
+		"platform.identity.v1.MFAStatusChanged",
+		actor.ID,
+		now,
+		&identityv1.MFAStatusChangedEvent{
+			UserId:                 actor.ID,
+			Enabled:                true,
+			RecoveryCodesRemaining: uint32(len(recoveryCodes)),
+		},
+	)
+	if err != nil {
+		return MFARecoveryRotation{}, apperror.Internal(err)
+	}
+	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+		if err := s.repository.AdvanceMFAStepAtVersion(
+			ctx,
+			tx,
+			actor.ID,
+			step,
+			actor.ID,
+			version,
+			now,
+		); err != nil {
+			return err
+		}
+		if err := s.repository.ReplaceRecoveryCodes(ctx, tx, recoveryCodes); err != nil {
+			return err
+		}
+		return s.repository.InsertOutbox(ctx, tx, event)
+	})
+	if err != nil {
+		return MFARecoveryRotation{}, translateIdentityError(err)
+	}
+	return MFARecoveryRotation{RecoveryCodes: codes, Version: version + 1}, nil
+}
+
 func (s *Service) verifyCurrentPassword(ctx context.Context, userID, password string) error {
 	credential, err := s.repository.PasswordCredential(ctx, userID)
 	if err != nil || credential.Status != StatusActive {

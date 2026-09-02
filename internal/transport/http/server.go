@@ -68,6 +68,7 @@ func NewServer(lc fx.Lifecycle, cfg config.Config, handler *Handler, authService
 	api.POST("/auth/mfa/status", handler.MFAStatus)
 	api.POST("/auth/mfa/setup/start", handler.StartMFASetup)
 	api.POST("/auth/mfa/setup/confirm", handler.ConfirmMFASetup)
+	api.POST("/auth/mfa/recovery-codes/regenerate", handler.RegenerateMFARecoveryCodes)
 	api.POST("/auth/mfa/disable", handler.DisableMFA)
 	api.POST("/auth/sessions/list", handler.ListOwnSessions)
 	api.POST("/auth/sessions/revoke", handler.RevokeOwnSession)

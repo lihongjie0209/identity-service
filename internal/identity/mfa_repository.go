@@ -212,6 +212,36 @@ func (r *Repository) AdvanceMFAStep(
 	return requireAffected(result)
 }
 
+func (r *Repository) AdvanceMFAStepAtVersion(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	userID string,
+	step int64,
+	actor string,
+	expectedVersion int64,
+	now time.Time,
+) error {
+	query := r.db.Rebind(
+		"UPDATE user_mfa SET last_used_step = ?, version = version + 1, updated_at = ?, updated_by = ? " +
+			"WHERE user_id = ? AND status = ? AND last_used_step < ? AND version = ?",
+	)
+	result, err := tx.ExecContext(
+		ctx,
+		query,
+		step,
+		now,
+		actor,
+		userID,
+		MFAStatusEnabled,
+		step,
+		expectedVersion,
+	)
+	if err != nil {
+		return fmt.Errorf("advance mfa step at version: %w", err)
+	}
+	return requireAffected(result)
+}
+
 func (r *Repository) ConsumeRecoveryCode(
 	ctx context.Context,
 	tx *sqlx.Tx,

@@ -78,6 +78,15 @@ type DisableMFAResponseBody struct {
 	Disabled        bool   `json:"disabled"`
 	RevokedSessions uint64 `json:"revoked_sessions"`
 }
+type RegenerateMFARecoveryCodesRequest struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+	Code            string `json:"code" binding:"required"`
+	Version         int64  `json:"version" binding:"required"`
+}
+type RegenerateMFARecoveryCodesResponseBody struct {
+	RecoveryCodes []string `json:"recovery_codes"`
+	Version       int64    `json:"version"`
+}
 type ListSessionsRequest struct {
 	UserID   string `json:"user_id"`
 	TenantID string `json:"tenant_id"`
@@ -481,6 +490,38 @@ func (h *Handler) DisableMFA(c *gin.Context) {
 		return
 	}
 	OK(c, DisableMFAResponseBody{Disabled: true, RevokedSessions: revokedSessions})
+}
+
+// RegenerateMFARecoveryCodes godoc
+// @Summary Replace all MFA recovery codes after password and TOTP verification
+// @Tags authentication
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body RegenerateMFARecoveryCodesRequest true "Current password, fresh TOTP code, and expected version"
+// @Success 200 {object} Response{body=RegenerateMFARecoveryCodesResponseBody}
+// @Failure 409 {object} Response "Code 30009: stale resource version"
+// @Router /api/v1/auth/mfa/recovery-codes/regenerate [post]
+func (h *Handler) RegenerateMFARecoveryCodes(c *gin.Context) {
+	var req RegenerateMFARecoveryCodesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	rotation, err := h.identities.RegenerateMFARecoveryCodes(
+		c.Request.Context(),
+		req.CurrentPassword,
+		req.Code,
+		req.Version,
+	)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, RegenerateMFARecoveryCodesResponseBody{
+		RecoveryCodes: rotation.RecoveryCodes,
+		Version:       rotation.Version,
+	})
 }
 
 // ListSessions godoc

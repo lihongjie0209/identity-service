@@ -269,6 +269,28 @@ definitions:
     required:
     - refresh_token
     type: object
+  httptransport.RegenerateMFARecoveryCodesRequest:
+    properties:
+      code:
+        type: string
+      current_password:
+        type: string
+      version:
+        type: integer
+    required:
+    - code
+    - current_password
+    - version
+    type: object
+  httptransport.RegenerateMFARecoveryCodesResponseBody:
+    properties:
+      recovery_codes:
+        items:
+          type: string
+        type: array
+      version:
+        type: integer
+    type: object
   httptransport.RegisterIdentityRequest:
     properties:
       display_name:
@@ -646,6 +668,38 @@ paths:
       security:
       - Bearer: []
       summary: Disable TOTP MFA after password and TOTP verification
+      tags:
+      - authentication
+  /api/v1/auth/mfa/recovery-codes/regenerate:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Current password, fresh TOTP code, and expected version
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.RegenerateMFARecoveryCodesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.RegenerateMFARecoveryCodesResponseBody'
+              type: object
+        "409":
+          description: 'Code 30009: stale resource version'
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      security:
+      - Bearer: []
+      summary: Replace all MFA recovery codes after password and TOTP verification
       tags:
       - authentication
   /api/v1/auth/mfa/setup/confirm:
