@@ -239,6 +239,7 @@ func identityHTTPRequirement(route string) (platformauthz.Requirement, bool) {
 		"/api/v1/sessions/revoke":                 {Resource: "identity.session", Action: "revoke", Scope: platformauthz.ScopePlatform},
 		"/api/v1/identities/register":             {Resource: "identity.user", Action: "create", Scope: platformauthz.ScopePlatform},
 		"/api/v1/identities/list":                 {Resource: "identity.user", Action: "list", Scope: platformauthz.ScopePlatform},
+		"/api/v1/identities/batch-get":            {Resource: "identity.user", Action: "list", Scope: platformauthz.ScopePlatform},
 		"/api/v1/identities/update-profile":       {Resource: "identity.user", Action: "update-profile", Scope: platformauthz.ScopePlatform},
 		"/api/v1/identities/update-status":        {Resource: "identity.user", Action: "update-status", Scope: platformauthz.ScopePlatform},
 		"/api/v1/identities/password-reset/issue": {Resource: "identity.user", Action: "password-reset", Scope: platformauthz.ScopePlatform},

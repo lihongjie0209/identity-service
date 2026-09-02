@@ -235,6 +235,12 @@ type IdentityPageResponseBody struct {
 	Page     int                    `json:"page"`
 	PageSize int                    `json:"page_size"`
 }
+type BatchGetIdentitiesRequest struct {
+	UserIDs []string `json:"user_ids" binding:"required"`
+}
+type IdentityBatchResponseBody struct {
+	Items []IdentityResponseBody `json:"items"`
+}
 type UpdateIdentityStatusRequest struct {
 	ID      string `json:"id" binding:"required"`
 	Status  string `json:"status" binding:"required"`
@@ -764,6 +770,33 @@ func (h *Handler) ListIdentities(c *gin.Context) {
 		return
 	}
 	OK(c, identityPageResponse(page))
+}
+
+// BatchGetIdentities godoc
+// @Summary Batch get up to 100 user identities
+// @Tags identities
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body BatchGetIdentitiesRequest true "User IDs"
+// @Success 200 {object} Response{body=IdentityBatchResponseBody}
+// @Router /api/v1/identities/batch-get [post]
+func (h *Handler) BatchGetIdentities(c *gin.Context) {
+	var req BatchGetIdentitiesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	users, err := h.identities.BatchGetUsers(c.Request.Context(), req.UserIDs)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	items := make([]IdentityResponseBody, len(users))
+	for index, user := range users {
+		items[index] = identityResponse(user)
+	}
+	OK(c, IdentityBatchResponseBody{Items: items})
 }
 
 // UpdateIdentityStatus godoc

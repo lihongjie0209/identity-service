@@ -60,6 +60,15 @@ definitions:
       version:
         type: integer
     type: object
+  httptransport.BatchGetIdentitiesRequest:
+    properties:
+      user_ids:
+        items:
+          type: string
+        type: array
+    required:
+    - user_ids
+    type: object
   httptransport.ChangePasswordRequest:
     properties:
       current_password:
@@ -153,6 +162,13 @@ definitions:
         type: boolean
       revoked_sessions:
         type: integer
+    type: object
+  httptransport.IdentityBatchResponseBody:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/httptransport.IdentityResponseBody'
+        type: array
     type: object
   httptransport.IdentityPageResponseBody:
     properties:
@@ -1111,6 +1127,34 @@ paths:
       summary: Revoke a session owned by the authenticated user
       tags:
       - authentication
+  /api/v1/identities/batch-get:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: User IDs
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.BatchGetIdentitiesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.IdentityBatchResponseBody'
+              type: object
+      security:
+      - Bearer: []
+      summary: Batch get up to 100 user identities
+      tags:
+      - identities
   /api/v1/identities/list:
     post:
       consumes:

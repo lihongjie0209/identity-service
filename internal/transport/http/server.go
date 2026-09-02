@@ -80,6 +80,7 @@ func NewServer(lc fx.Lifecycle, cfg config.Config, handler *Handler, authService
 	api.POST("/sessions/revoke", handler.RevokeSession)
 	api.POST("/identities/register", handler.RegisterIdentity)
 	api.POST("/identities/list", handler.ListIdentities)
+	api.POST("/identities/batch-get", handler.BatchGetIdentities)
 	api.POST("/identities/update-profile", handler.UpdateIdentityProfile)
 	api.POST("/identities/update-status", handler.UpdateIdentityStatus)
 	api.POST("/identities/password-reset/issue", handler.IssuePasswordReset)

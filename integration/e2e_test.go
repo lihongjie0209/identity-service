@@ -276,6 +276,16 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("list identities status=%d body=%s", status, identitiesBody)
 	}
+	batchIdentitiesBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/identities/batch-get",
+		"Bearer "+newPasswordToken,
+		"",
+		fmt.Sprintf(`{"user_ids":[%q]}`, userID),
+	)
+	if status != http.StatusOK || !bytes.Contains(batchIdentitiesBody, []byte(`"username":"alice"`)) {
+		t.Fatalf("batch identities status=%d body=%s", status, batchIdentitiesBody)
+	}
 	identityVersion := responseIdentityVersion(t, identitiesBody, userID)
 	updateProfileBody, status := postJSONBody(
 		t,

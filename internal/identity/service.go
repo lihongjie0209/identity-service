@@ -486,7 +486,23 @@ func (s *Service) UpdateUserProfile(
 	return s.repository.GetUser(ctx, id)
 }
 func (s *Service) BatchGetUsers(ctx context.Context, ids []string) ([]User, error) {
-	users, err := s.repository.BatchGetUsers(ctx, ids)
+	if len(ids) > 100 {
+		return nil, apperror.Invalid("at most 100 user IDs are allowed", nil)
+	}
+	normalized := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return nil, apperror.Invalid("user IDs must not be empty", nil)
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	users, err := s.repository.BatchGetUsers(ctx, normalized)
 	return users, translateIdentityError(err)
 }
 func (s *Service) ValidateSession(ctx context.Context, id, userID string) (Session, bool, error) {

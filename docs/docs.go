@@ -770,6 +770,56 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/identities/batch-get": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "identities"
+                ],
+                "summary": "Batch get up to 100 user identities",
+                "parameters": [
+                    {
+                        "description": "User IDs",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.BatchGetIdentitiesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/httptransport.IdentityBatchResponseBody"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/identities/list": {
             "post": {
                 "security": [
@@ -1682,6 +1732,20 @@ const docTemplate = `{
                 }
             }
         },
+        "httptransport.BatchGetIdentitiesRequest": {
+            "type": "object",
+            "required": [
+                "user_ids"
+            ],
+            "properties": {
+                "user_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "httptransport.ChangePasswordRequest": {
             "type": "object",
             "required": [
@@ -1822,6 +1886,17 @@ const docTemplate = `{
                 },
                 "revoked_sessions": {
                     "type": "integer"
+                }
+            }
+        },
+        "httptransport.IdentityBatchResponseBody": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/httptransport.IdentityResponseBody"
+                    }
                 }
             }
         },
