@@ -15,6 +15,7 @@ import (
 	"github.com/lihongjie0209/identity-service/internal/config"
 	"github.com/lihongjie0209/identity-service/internal/database"
 	"github.com/lihongjie0209/microservice-platform-go/principal"
+	identityv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/identity/v1"
 )
 
 func newMFAServiceForTest(t *testing.T, db *sqlx.DB) *Service {
@@ -243,6 +244,20 @@ func TestServiceAdminResetMFARejectsSelfServiceBypass(t *testing.T) {
 	var appErr *apperror.Error
 	if !errors.As(err, &appErr) || appErr.Code != apperror.CodeInvalidArgument {
 		t.Fatalf("AdminResetMFA() error = %v", err)
+	}
+}
+
+func TestAdministrativeMFAResetEventRetainsAuditReason(t *testing.T) {
+	t.Parallel()
+	payload := newAdministrativeMFAResetEvent("user-1", "  verified device loss  ")
+	if payload.GetUserId() != "user-1" || payload.GetEnabled() {
+		t.Fatalf("administrative reset payload = %+v", payload)
+	}
+	if payload.GetChangeType() != identityv1.MFAStatusChangeType_MFA_STATUS_CHANGE_TYPE_ADMINISTRATIVE_RESET {
+		t.Fatalf("change type = %v", payload.GetChangeType())
+	}
+	if payload.GetReason() != "verified device loss" {
+		t.Fatalf("reason = %q", payload.GetReason())
 	}
 }
 

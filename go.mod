@@ -14,7 +14,7 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lihongjie0209/microservice-platform-go v0.9.6
-	github.com/lihongjie0209/platform-protos v0.43.1-0.20260902001610-a3b97968b3a1
+	github.com/lihongjie0209/platform-protos v0.43.1-0.20260902013633-b2bf3e098265
 	github.com/prometheus/client_golang v1.24.1
 	github.com/redis/go-redis/extra/redisotel/v9 v9.22.0
 	github.com/redis/go-redis/v9 v9.22.0

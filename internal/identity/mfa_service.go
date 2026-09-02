@@ -348,6 +348,8 @@ func (s *Service) ConfirmMFASetup(ctx context.Context, code string, version int6
 			UserId:                 actor.ID,
 			Enabled:                true,
 			RecoveryCodesRemaining: uint32(len(recoveryCodes)),
+			ChangeType:             identityv1.MFAStatusChangeType_MFA_STATUS_CHANGE_TYPE_ENABLED,
+			Reason:                 "user enabled mfa",
 		},
 	)
 	if err != nil {
@@ -419,7 +421,12 @@ func (s *Service) DisableMFA(
 		"platform.identity.v1.MFAStatusChanged",
 		actor.ID,
 		now,
-		&identityv1.MFAStatusChangedEvent{UserId: actor.ID, Enabled: false},
+		&identityv1.MFAStatusChangedEvent{
+			UserId:     actor.ID,
+			Enabled:    false,
+			ChangeType: identityv1.MFAStatusChangeType_MFA_STATUS_CHANGE_TYPE_DISABLED,
+			Reason:     "user disabled mfa",
+		},
 	)
 	if err != nil {
 		return 0, apperror.Internal(err)
@@ -511,6 +518,8 @@ func (s *Service) RegenerateMFARecoveryCodes(
 			UserId:                 actor.ID,
 			Enabled:                true,
 			RecoveryCodesRemaining: uint32(len(recoveryCodes)),
+			ChangeType:             identityv1.MFAStatusChangeType_MFA_STATUS_CHANGE_TYPE_RECOVERY_CODES_ROTATED,
+			Reason:                 "user rotated mfa recovery codes",
 		},
 	)
 	if err != nil {
@@ -571,7 +580,7 @@ func (s *Service) AdminResetMFA(
 		"platform.identity.v1.MFAStatusChanged",
 		userID,
 		now,
-		&identityv1.MFAStatusChangedEvent{UserId: userID, Enabled: false},
+		newAdministrativeMFAResetEvent(userID, reason),
 	)
 	if err != nil {
 		return AdminMFAResetResult{}, apperror.Internal(err)
@@ -606,6 +615,15 @@ func (s *Service) AdminResetMFA(
 		RevokedSessions: revokedSessions,
 		Version:         version + 1,
 	}, nil
+}
+
+func newAdministrativeMFAResetEvent(userID, reason string) *identityv1.MFAStatusChangedEvent {
+	return &identityv1.MFAStatusChangedEvent{
+		UserId:     userID,
+		Enabled:    false,
+		ChangeType: identityv1.MFAStatusChangeType_MFA_STATUS_CHANGE_TYPE_ADMINISTRATIVE_RESET,
+		Reason:     strings.TrimSpace(reason),
+	}
 }
 
 func (s *Service) verifyCurrentPassword(ctx context.Context, userID, password string) error {
