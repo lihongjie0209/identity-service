@@ -68,7 +68,12 @@ func TestRepositoryAndMigrations(t *testing.T) {
 			if err != nil {
 				t.Fatalf("register: %v", err)
 			}
-			tokens, err := service.Login(ctx, created.Username, "correct horse battery staple")
+			tokens, err := service.Login(
+				ctx,
+				created.Username,
+				"correct horse battery staple",
+				identitydomain.SessionClient{IP: "127.0.0.1", UserAgent: "identity-integration-test"},
+			)
 			if err != nil {
 				t.Fatalf("login: %v", err)
 			}

@@ -23,7 +23,7 @@ func NewRepository(db *sqlx.DB) *Repository { return &Repository{db: db} }
 
 const userColumns = "id, username, name, email, phone, status, failed_login_count, locked_until, version, created_at, updated_at, created_by, updated_by"
 const serviceAccountColumns = "id, client_id, name, secret_hash, status, audiences_json, version, created_at, updated_at, created_by, updated_by"
-const sessionColumns = "id, user_id, refresh_token_hash, tenant_id, membership_id, expires_at, revoked_at, revoke_reason, version, created_at, updated_at, created_by, updated_by, last_used_at"
+const sessionColumns = "id, user_id, refresh_token_hash, tenant_id, membership_id, expires_at, revoked_at, revoke_reason, version, created_at, updated_at, created_by, updated_by, last_used_at, client_ip, user_agent"
 
 func (r *Repository) CreateUser(ctx context.Context, tx *sqlx.Tx, user User, credential Credential) error {
 	userQuery := r.db.Rebind("INSERT INTO users (id, username, name, email, phone, status, failed_login_count, version, created_at, updated_at, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -177,8 +177,8 @@ func (r *Repository) BatchGetUsers(ctx context.Context, ids []string) ([]User, e
 }
 
 func (r *Repository) CreateSession(ctx context.Context, tx *sqlx.Tx, session Session) error {
-	query := r.db.Rebind("INSERT INTO sessions (id, user_id, refresh_token_hash, tenant_id, membership_id, expires_at, revoked_at, revoke_reason, version, created_at, updated_at, created_by, updated_by, last_used_at) VALUES (?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?)")
-	_, err := tx.ExecContext(ctx, query, session.ID, session.UserID, session.RefreshTokenHash, session.TenantID, session.MembershipID, session.ExpiresAt, session.Version, session.CreatedAt, session.UpdatedAt, session.CreatedBy, session.UpdatedBy, session.LastUsedAt)
+	query := r.db.Rebind("INSERT INTO sessions (id, user_id, refresh_token_hash, tenant_id, membership_id, expires_at, revoked_at, revoke_reason, version, created_at, updated_at, created_by, updated_by, last_used_at, client_ip, user_agent) VALUES (?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?, ?, ?)")
+	_, err := tx.ExecContext(ctx, query, session.ID, session.UserID, session.RefreshTokenHash, session.TenantID, session.MembershipID, session.ExpiresAt, session.Version, session.CreatedAt, session.UpdatedAt, session.CreatedBy, session.UpdatedBy, session.LastUsedAt, session.ClientIP, session.UserAgent)
 	if err != nil {
 		return fmt.Errorf("insert session: %w", err)
 	}

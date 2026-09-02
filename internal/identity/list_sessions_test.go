@@ -35,7 +35,7 @@ func TestRepositoryListSessionsFiltersAndPaginates(t *testing.T) {
 		WithArgs("user-1", "tenant-1", now, 20, 20).
 		WillReturnRows(sessionRows(now).AddRow(
 			"session-1", "user-1", "refresh-hash", "tenant-1", "membership-1",
-			now.Add(time.Hour), nil, "", 1, now, now, "user-1", "user-1", now,
+			now.Add(time.Hour), nil, "", 1, now, now, "user-1", "user-1", now, "127.0.0.1", "test-agent",
 		))
 
 	sessions, total, err := repository.ListSessions(
@@ -89,7 +89,7 @@ func TestServiceListOwnSessionsBindsAuthenticatedUser(t *testing.T) {
 		WithArgs("user-1", now, 20, 0).
 		WillReturnRows(sessionRows(now).AddRow(
 			"session-1", "user-1", "refresh-hash", "", "",
-			now.Add(time.Hour), nil, "", 1, now, now, "user-1", "user-1", now,
+			now.Add(time.Hour), nil, "", 1, now, now, "user-1", "user-1", now, "127.0.0.1", "test-agent",
 		))
 
 	ctx := principal.WithContext(
@@ -134,7 +134,7 @@ func TestServiceRevokeOwnSessionBindsUserAndVersion(t *testing.T) {
 		WithArgs("session-2", "user-1").
 		WillReturnRows(sessionRows(now).AddRow(
 			"session-2", "user-1", "refresh-hash", "tenant-1", "membership-1",
-			now.Add(time.Hour), nil, "", 3, now, now, "user-1", "user-1", now,
+			now.Add(time.Hour), nil, "", 3, now, now, "user-1", "user-1", now, "127.0.0.1", "test-agent",
 		))
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(
@@ -164,7 +164,7 @@ func TestServiceRevokeOwnSessionBindsUserAndVersion(t *testing.T) {
 		WithArgs("session-2", "user-1").
 		WillReturnRows(sessionRows(now).AddRow(
 			"session-2", "user-1", "refresh-hash", "tenant-1", "membership-1",
-			now.Add(time.Hour), revokedAt, "user security revocation", 4, now, now, "user-1", "user-1", now,
+			now.Add(time.Hour), revokedAt, "user security revocation", 4, now, now, "user-1", "user-1", now, "127.0.0.1", "test-agent",
 		))
 
 	ctx := principal.WithContext(
@@ -212,7 +212,7 @@ func TestServiceRevokeSessionByIDUsesExpectedVersionAndWritesOutbox(t *testing.T
 		WithArgs("session-1").
 		WillReturnRows(sessionRows(now).AddRow(
 			"session-1", "user-1", "refresh-hash", "tenant-1", "membership-1",
-			now.Add(time.Hour), nil, "", 4, now, now, "user-1", "user-1", now,
+			now.Add(time.Hour), nil, "", 4, now, now, "user-1", "user-1", now, "127.0.0.1", "test-agent",
 		))
 	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(
@@ -242,7 +242,7 @@ func TestServiceRevokeSessionByIDUsesExpectedVersionAndWritesOutbox(t *testing.T
 		WithArgs("session-1").
 		WillReturnRows(sessionRows(now).AddRow(
 			"session-1", "user-1", "refresh-hash", "tenant-1", "membership-1",
-			now.Add(time.Hour), revokedAt, "suspected compromise", 5, now, now, "user-1", "admin-1", now,
+			now.Add(time.Hour), revokedAt, "suspected compromise", 5, now, now, "user-1", "admin-1", now, "127.0.0.1", "test-agent",
 		))
 
 	ctx := principal.WithContext(
@@ -265,6 +265,6 @@ func sessionRows(_ time.Time) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "user_id", "refresh_token_hash", "tenant_id", "membership_id", "expires_at",
 		"revoked_at", "revoke_reason", "version", "created_at", "updated_at", "created_by",
-		"updated_by", "last_used_at",
+		"updated_by", "last_used_at", "client_ip", "user_agent",
 	})
 }

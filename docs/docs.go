@@ -1376,6 +1376,9 @@ const docTemplate = `{
         "httptransport.SessionResponseBody": {
             "type": "object",
             "properties": {
+                "client_ip": {
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -1410,6 +1413,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "updated_by": {
+                    "type": "string"
+                },
+                "user_agent": {
                     "type": "string"
                 },
                 "user_id": {

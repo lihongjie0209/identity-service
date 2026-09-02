@@ -51,7 +51,14 @@ type Session struct {
 	RevokedAt        *time.Time `db:"revoked_at" json:"revoked_at,omitempty"`
 	RevokeReason     string     `db:"revoke_reason" json:"revoke_reason,omitempty"`
 	LastUsedAt       time.Time  `db:"last_used_at" json:"last_used_at"`
+	ClientIP         string     `db:"client_ip" json:"client_ip"`
+	UserAgent        string     `db:"user_agent" json:"user_agent"`
 	audit.Fields
+}
+
+type SessionClient struct {
+	IP        string
+	UserAgent string
 }
 
 type ServiceAccount struct {

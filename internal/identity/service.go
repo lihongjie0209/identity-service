@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -100,7 +101,7 @@ func (s *Service) Register(ctx context.Context, username, displayName, email, ph
 	return user, nil
 }
 
-func (s *Service) Login(ctx context.Context, login, password string) (Tokens, error) {
+func (s *Service) Login(ctx context.Context, login, password string, client SessionClient) (Tokens, error) {
 	login = strings.TrimSpace(login)
 	if login == "" || password == "" {
 		return Tokens{}, apperror.Invalid("login and password are required", nil)
@@ -121,10 +122,16 @@ func (s *Service) Login(ctx context.Context, login, password string) (Tokens, er
 	if err := s.repository.ResetFailedLogin(ctx, user.ID, now); err != nil {
 		return Tokens{}, apperror.Internal(err)
 	}
-	return s.createSession(principal.SystemContext(ctx, "identity:login"), user.ID, "", "")
+	return s.createSession(principal.SystemContext(ctx, "identity:login"), user.ID, "", "", client)
 }
 
-func (s *Service) createSession(ctx context.Context, userID, tenantID, membershipID string) (Tokens, error) {
+func (s *Service) createSession(
+	ctx context.Context,
+	userID string,
+	tenantID string,
+	membershipID string,
+	client SessionClient,
+) (Tokens, error) {
 	now := s.now().UTC()
 	rawRefresh, refreshHash, err := newRefreshToken()
 	if err != nil {
@@ -134,7 +141,18 @@ func (s *Service) createSession(ctx context.Context, userID, tenantID, membershi
 	if err != nil {
 		return Tokens{}, apperror.Unauthorized("authenticated actor is required")
 	}
-	session := Session{ID: uuid.NewString(), UserID: userID, RefreshTokenHash: refreshHash, TenantID: tenantID, MembershipID: membershipID, ExpiresAt: now.Add(refreshTTL), LastUsedAt: now, Fields: fields}
+	session := Session{
+		ID:               uuid.NewString(),
+		UserID:           userID,
+		RefreshTokenHash: refreshHash,
+		TenantID:         tenantID,
+		MembershipID:     membershipID,
+		ExpiresAt:        now.Add(refreshTTL),
+		LastUsedAt:       now,
+		ClientIP:         truncateUTF8(strings.TrimSpace(client.IP), 128),
+		UserAgent:        truncateUTF8(strings.TrimSpace(client.UserAgent), 1024),
+		Fields:           fields,
+	}
 	access, expiresAt, err := s.issuer.Issue(userID, "user", session.ID, tenantID, membershipID)
 	if err != nil {
 		return Tokens{}, apperror.Internal(err)
@@ -143,6 +161,16 @@ func (s *Service) createSession(ctx context.Context, userID, tenantID, membershi
 		return Tokens{}, translateIdentityError(err)
 	}
 	return Tokens{AccessToken: access, RefreshToken: rawRefresh, TokenType: "Bearer", ExpiresAt: expiresAt, SessionID: session.ID}, nil
+}
+
+func truncateUTF8(value string, maxBytes int) string {
+	if len(value) <= maxBytes {
+		return value
+	}
+	for maxBytes > 0 && !utf8.ValidString(value[:maxBytes]) {
+		maxBytes--
+	}
+	return value[:maxBytes]
 }
 
 func (s *Service) Refresh(ctx context.Context, refreshToken string) (Tokens, error) {

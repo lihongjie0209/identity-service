@@ -124,6 +124,10 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("list own sessions status=%d body=%s", status, ownedSessionsBody)
 	}
+	if !bytes.Contains(ownedSessionsBody, []byte(`"client_ip":"127.0.0.1"`)) ||
+		!bytes.Contains(ownedSessionsBody, []byte(`"user_agent":"Go-http-client/1.1"`)) {
+		t.Fatalf("own sessions omit client metadata: %s", ownedSessionsBody)
+	}
 	selfRevokeVersion := responseSessionVersion(t, ownedSessionsBody, selfRevokeSessionID)
 	selfRevokeBody, status := postJSONBody(
 		t,

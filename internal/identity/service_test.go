@@ -120,6 +120,16 @@ func identityErrorCode(err error) int {
 	return 0
 }
 
+func TestTruncateUTF8PreservesValidEncoding(t *testing.T) {
+	t.Parallel()
+	if got := truncateUTF8("abcdef", 4); got != "abcd" {
+		t.Fatalf("truncateUTF8(ascii) = %q", got)
+	}
+	if got := truncateUTF8("设备浏览器", 7); got != "设备" {
+		t.Fatalf("truncateUTF8(multibyte) = %q", got)
+	}
+}
+
 func TestServiceLoginRecordsFailureBeforeRejectingCredentials(t *testing.T) {
 	t.Parallel()
 	db, mock, err := sqlmock.New()
@@ -141,7 +151,7 @@ func TestServiceLoginRecordsFailureBeforeRejectingCredentials(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT "+userColumns+" FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)")).WithArgs("alice", "alice").WillReturnRows(sqlmock.NewRows([]string{"id", "username", "name", "email", "phone", "status", "failed_login_count", "locked_until", "version", "created_at", "updated_at", "created_by", "updated_by"}).AddRow("u1", "alice", "Alice", "alice@example.com", "", StatusActive, 0, nil, 1, now, now, "admin", "admin"))
 	mock.ExpectQuery("SELECT id, user_id, type, secret_hash").WithArgs("u1").WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "type", "secret_hash", "status", "version", "created_at", "updated_at", "created_by", "updated_by"}).AddRow("c1", "u1", "password", hash, StatusActive, 1, now, now, "admin", "admin"))
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE users SET failed_login_count = failed_login_count + 1, locked_until = CASE WHEN failed_login_count + 1 >= ? THEN ? ELSE locked_until END, version = version + 1, updated_at = ?, updated_by = 'identity:login' WHERE id = ?")).WithArgs(loginFailureThreshold, sqlmock.AnyArg(), sqlmock.AnyArg(), "u1").WillReturnResult(sqlmock.NewResult(0, 1))
-	if _, err := service.Login(t.Context(), "alice", "wrong password value"); err == nil {
+	if _, err := service.Login(t.Context(), "alice", "wrong password value", SessionClient{}); err == nil {
 		t.Fatal("Login() error = nil")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
