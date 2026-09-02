@@ -24,17 +24,17 @@ func TestRepositoryListSessionsFiltersAndPaginates(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	repository := NewRepository(sqlx.NewDb(db, "sqlmock"))
 	now := time.Now().UTC()
-	where := " WHERE 1=1 AND user_id = ? AND tenant_id = ? AND revoked_at IS NULL AND expires_at > ?"
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM sessions"+where)).
+	where := " WHERE 1=1 AND s.user_id = ? AND s.tenant_id = ? AND s.revoked_at IS NULL AND s.expires_at > ?"
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM sessions s"+where)).
 		WithArgs("user-1", "tenant-1", now).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT "+sessionColumns+" FROM sessions"+where+
-			" ORDER BY last_used_at DESC, id LIMIT ? OFFSET ?",
+		"SELECT "+sessionListColumns+" FROM sessions s JOIN users u ON u.id = s.user_id"+where+
+			" ORDER BY s.last_used_at DESC, s.id LIMIT ? OFFSET ?",
 	)).
 		WithArgs("user-1", "tenant-1", now, 20, 20).
-		WillReturnRows(sessionRows(now).AddRow(
-			"session-1", "user-1", "refresh-hash", "tenant-1", "membership-1",
+		WillReturnRows(sessionListRows().AddRow(
+			"session-1", "user-1", "alice", "Alice", "refresh-hash", "tenant-1", "membership-1",
 			now.Add(time.Hour), nil, "", 1, now, now, "user-1", "user-1", now, "127.0.0.1", "test-agent",
 		))
 
@@ -50,7 +50,7 @@ func TestRepositoryListSessionsFiltersAndPaginates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total != 1 || len(sessions) != 1 || sessions[0].ID != "session-1" {
+	if total != 1 || len(sessions) != 1 || sessions[0].ID != "session-1" || sessions[0].Username != "alice" || sessions[0].UserDisplayName != "Alice" {
 		t.Fatalf("ListSessions() = sessions:%#v total:%d", sessions, total)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -78,17 +78,17 @@ func TestServiceListOwnSessionsBindsAuthenticatedUser(t *testing.T) {
 	service := &Service{repository: NewRepository(sqlx.NewDb(db, "sqlmock")), now: time.Now}
 	now := time.Now().UTC()
 	service.now = func() time.Time { return now }
-	where := " WHERE 1=1 AND user_id = ? AND revoked_at IS NULL AND expires_at > ?"
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM sessions"+where)).
+	where := " WHERE 1=1 AND s.user_id = ? AND s.revoked_at IS NULL AND s.expires_at > ?"
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM sessions s"+where)).
 		WithArgs("user-1", now).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT "+sessionColumns+" FROM sessions"+where+
-			" ORDER BY last_used_at DESC, id LIMIT ? OFFSET ?",
+		"SELECT "+sessionListColumns+" FROM sessions s JOIN users u ON u.id = s.user_id"+where+
+			" ORDER BY s.last_used_at DESC, s.id LIMIT ? OFFSET ?",
 	)).
 		WithArgs("user-1", now, 20, 0).
-		WillReturnRows(sessionRows(now).AddRow(
-			"session-1", "user-1", "refresh-hash", "", "",
+		WillReturnRows(sessionListRows().AddRow(
+			"session-1", "user-1", "alice", "Alice", "refresh-hash", "", "",
 			now.Add(time.Hour), nil, "", 1, now, now, "user-1", "user-1", now, "127.0.0.1", "test-agent",
 		))
 
@@ -265,6 +265,14 @@ func sessionRows(_ time.Time) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "user_id", "refresh_token_hash", "tenant_id", "membership_id", "expires_at",
 		"revoked_at", "revoke_reason", "version", "created_at", "updated_at", "created_by",
+		"updated_by", "last_used_at", "client_ip", "user_agent",
+	})
+}
+
+func sessionListRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "user_id", "username", "user_display_name", "refresh_token_hash", "tenant_id", "membership_id",
+		"expires_at", "revoked_at", "revoke_reason", "version", "created_at", "updated_at", "created_by",
 		"updated_by", "last_used_at", "client_ip", "user_agent",
 	})
 }

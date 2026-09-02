@@ -220,7 +220,7 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		"",
 		`{"user_id":"`+userID+`","status":"active","page":1,"page_size":20}`,
 	)
-	if status != http.StatusOK {
+	if status != http.StatusOK || !bytes.Contains(sessionsBody, []byte(`"username":"alice"`)) || !bytes.Contains(sessionsBody, []byte(`"user_display_name":"Alice"`)) {
 		t.Fatalf("list sessions status=%d body=%s", status, sessionsBody)
 	}
 	sessionID, sessionVersion := responseSession(t, sessionsBody)

@@ -127,22 +127,24 @@ type RevokeSessionRequest struct {
 	Version   int64  `json:"version" binding:"required"`
 }
 type SessionResponseBody struct {
-	SessionID    string     `json:"session_id"`
-	UserID       string     `json:"user_id"`
-	TenantID     string     `json:"tenant_id"`
-	MembershipID string     `json:"membership_id"`
-	Status       string     `json:"status"`
-	ExpiresAt    time.Time  `json:"expires_at"`
-	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
-	RevokeReason string     `json:"revoke_reason,omitempty"`
-	LastUsedAt   time.Time  `json:"last_used_at"`
-	ClientIP     string     `json:"client_ip"`
-	UserAgent    string     `json:"user_agent"`
-	Version      int64      `json:"version"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
-	CreatedBy    string     `json:"created_by"`
-	UpdatedBy    string     `json:"updated_by"`
+	SessionID       string     `json:"session_id"`
+	UserID          string     `json:"user_id"`
+	Username        string     `json:"username"`
+	UserDisplayName string     `json:"user_display_name"`
+	TenantID        string     `json:"tenant_id"`
+	MembershipID    string     `json:"membership_id"`
+	Status          string     `json:"status"`
+	ExpiresAt       time.Time  `json:"expires_at"`
+	RevokedAt       *time.Time `json:"revoked_at,omitempty"`
+	RevokeReason    string     `json:"revoke_reason,omitempty"`
+	LastUsedAt      time.Time  `json:"last_used_at"`
+	ClientIP        string     `json:"client_ip"`
+	UserAgent       string     `json:"user_agent"`
+	Version         int64      `json:"version"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	CreatedBy       string     `json:"created_by"`
+	UpdatedBy       string     `json:"updated_by"`
 }
 type SessionPageResponseBody struct {
 	Items    []SessionResponseBody `json:"items"`
@@ -1175,21 +1177,23 @@ func sessionResponse(session identitydomain.Session, now time.Time) SessionRespo
 		status = "expired"
 	}
 	return SessionResponseBody{
-		SessionID:    session.ID,
-		UserID:       session.UserID,
-		TenantID:     session.TenantID,
-		MembershipID: session.MembershipID,
-		Status:       status,
-		ExpiresAt:    session.ExpiresAt,
-		RevokedAt:    session.RevokedAt,
-		RevokeReason: session.RevokeReason,
-		LastUsedAt:   session.LastUsedAt,
-		ClientIP:     session.ClientIP,
-		UserAgent:    session.UserAgent,
-		Version:      session.Version,
-		CreatedAt:    session.CreatedAt,
-		UpdatedAt:    session.UpdatedAt,
-		CreatedBy:    session.CreatedBy,
-		UpdatedBy:    session.UpdatedBy,
+		SessionID:       session.ID,
+		UserID:          session.UserID,
+		Username:        session.Username,
+		UserDisplayName: session.UserDisplayName,
+		TenantID:        session.TenantID,
+		MembershipID:    session.MembershipID,
+		Status:          status,
+		ExpiresAt:       session.ExpiresAt,
+		RevokedAt:       session.RevokedAt,
+		RevokeReason:    session.RevokeReason,
+		LastUsedAt:      session.LastUsedAt,
+		ClientIP:        session.ClientIP,
+		UserAgent:       session.UserAgent,
+		Version:         session.Version,
+		CreatedAt:       session.CreatedAt,
+		UpdatedAt:       session.UpdatedAt,
+		CreatedBy:       session.CreatedBy,
+		UpdatedBy:       session.UpdatedBy,
 	}
 }

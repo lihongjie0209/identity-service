@@ -63,6 +63,8 @@ type PasswordResetResult struct {
 type Session struct {
 	ID               string     `db:"id" json:"session_id"`
 	UserID           string     `db:"user_id" json:"user_id"`
+	Username         string     `db:"username" json:"username,omitempty"`
+	UserDisplayName  string     `db:"user_display_name" json:"user_display_name,omitempty"`
 	RefreshTokenHash string     `db:"refresh_token_hash" json:"-"`
 	TenantID         string     `db:"tenant_id" json:"tenant_id,omitempty"`
 	MembershipID     string     `db:"membership_id" json:"membership_id,omitempty"`

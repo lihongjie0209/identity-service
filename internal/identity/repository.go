@@ -24,6 +24,7 @@ func NewRepository(db *sqlx.DB) *Repository { return &Repository{db: db} }
 const userColumns = "id, username, name, email, phone, status, failed_login_count, locked_until, version, created_at, updated_at, created_by, updated_by"
 const serviceAccountColumns = "id, client_id, name, secret_hash, status, audiences_json, version, created_at, updated_at, created_by, updated_by"
 const sessionColumns = "id, user_id, refresh_token_hash, tenant_id, membership_id, expires_at, revoked_at, revoke_reason, version, created_at, updated_at, created_by, updated_by, last_used_at, client_ip, user_agent"
+const sessionListColumns = "s.id, s.user_id, u.username, u.name AS user_display_name, s.refresh_token_hash, s.tenant_id, s.membership_id, s.expires_at, s.revoked_at, s.revoke_reason, s.version, s.created_at, s.updated_at, s.created_by, s.updated_by, s.last_used_at, s.client_ip, s.user_agent"
 
 func (r *Repository) CreateUser(ctx context.Context, tx *sqlx.Tx, user User, credential Credential) error {
 	userQuery := r.db.Rebind("INSERT INTO users (id, username, name, email, phone, status, failed_login_count, version, created_at, updated_at, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -273,33 +274,33 @@ func (r *Repository) ListSessions(
 	where := " WHERE 1=1"
 	args := make([]any, 0, 4)
 	if userID != "" {
-		where += " AND user_id = ?"
+		where += " AND s.user_id = ?"
 		args = append(args, userID)
 	}
 	if tenantID != "" {
-		where += " AND tenant_id = ?"
+		where += " AND s.tenant_id = ?"
 		args = append(args, tenantID)
 	}
 	switch status {
 	case "active":
-		where += " AND revoked_at IS NULL AND expires_at > ?"
+		where += " AND s.revoked_at IS NULL AND s.expires_at > ?"
 		args = append(args, now)
 	case "revoked":
-		where += " AND revoked_at IS NOT NULL"
+		where += " AND s.revoked_at IS NOT NULL"
 	case "expired":
-		where += " AND revoked_at IS NULL AND expires_at <= ?"
+		where += " AND s.revoked_at IS NULL AND s.expires_at <= ?"
 		args = append(args, now)
 	}
 
 	var total int64
-	if err := r.db.GetContext(ctx, &total, r.db.Rebind("SELECT COUNT(*) FROM sessions"+where), args...); err != nil {
+	if err := r.db.GetContext(ctx, &total, r.db.Rebind("SELECT COUNT(*) FROM sessions s"+where), args...); err != nil {
 		return nil, 0, fmt.Errorf("count sessions: %w", err)
 	}
 	queryArgs := append(append([]any(nil), args...), limit, offset)
 	sessions := make([]Session, 0, limit)
 	query := r.db.Rebind(
-		"SELECT " + sessionColumns + " FROM sessions" + where +
-			" ORDER BY last_used_at DESC, id LIMIT ? OFFSET ?",
+		"SELECT " + sessionListColumns + " FROM sessions s JOIN users u ON u.id = s.user_id" + where +
+			" ORDER BY s.last_used_at DESC, s.id LIMIT ? OFFSET ?",
 	)
 	if err := r.db.SelectContext(ctx, &sessions, query, queryArgs...); err != nil {
 		return nil, 0, fmt.Errorf("list sessions: %w", err)

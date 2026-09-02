@@ -2430,7 +2430,13 @@ const docTemplate = `{
                 "user_agent": {
                     "type": "string"
                 },
+                "user_display_name": {
+                    "type": "string"
+                },
                 "user_id": {
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 },
                 "version": {
