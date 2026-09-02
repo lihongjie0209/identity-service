@@ -239,6 +239,14 @@ type UpdateIdentityStatusRequest struct {
 	Reason  string `json:"reason"`
 	Version int64  `json:"version" binding:"required"`
 }
+type UpdateIdentityProfileRequest struct {
+	ID          string `json:"id" binding:"required"`
+	DisplayName string `json:"display_name" binding:"required"`
+	Email       string `json:"email" binding:"required"`
+	Phone       string `json:"phone"`
+	Reason      string `json:"reason" binding:"required"`
+	Version     int64  `json:"version" binding:"required"`
+}
 type IssuePasswordResetRequest struct {
 	UserID string `json:"user_id" binding:"required"`
 	Reason string `json:"reason" binding:"required"`
@@ -772,6 +780,37 @@ func (h *Handler) UpdateIdentityStatus(c *gin.Context) {
 		return
 	}
 	updated, err := h.identities.UpdateUserStatus(c.Request.Context(), req.ID, req.Status, req.Reason, req.Version)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, identityResponse(updated))
+}
+
+// UpdateIdentityProfile godoc
+// @Summary Update user profile with optimistic locking
+// @Tags identities
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body UpdateIdentityProfileRequest true "Profile, audit reason, and version"
+// @Success 200 {object} Response{body=IdentityResponseBody}
+// @Router /api/v1/identities/update-profile [post]
+func (h *Handler) UpdateIdentityProfile(c *gin.Context) {
+	var req UpdateIdentityProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	updated, err := h.identities.UpdateUserProfile(
+		c.Request.Context(),
+		req.ID,
+		req.DisplayName,
+		req.Email,
+		req.Phone,
+		req.Reason,
+		req.Version,
+	)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return

@@ -49,6 +49,21 @@ func TestHandlerRotateServiceAccountSecretRejectsMissingVersion(t *testing.T) {
 	}
 }
 
+func TestHandlerUpdateIdentityProfileRejectsMissingReason(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	handler := NewHandler(nil, health.New(nil, nil, config.Config{}), nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	router := gin.New()
+	router.POST("/identities/update-profile", handler.UpdateIdentityProfile)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/identities/update-profile", strings.NewReader(`{"id":"user-1","display_name":"Alice","email":"alice@example.com","version":1}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+}
+
 func TestHandlerMeBindsProfileToAuthenticatedUser(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)

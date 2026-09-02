@@ -1029,6 +1029,56 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/identities/update-profile": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "identities"
+                ],
+                "summary": "Update user profile with optimistic locking",
+                "parameters": [
+                    {
+                        "description": "Profile, audit reason, and version",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.UpdateIdentityProfileRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/httptransport.IdentityResponseBody"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/identities/update-status": {
             "post": {
                 "security": [
@@ -2396,6 +2446,36 @@ const docTemplate = `{
             "properties": {
                 "current_password": {
                     "type": "string"
+                }
+            }
+        },
+        "httptransport.UpdateIdentityProfileRequest": {
+            "type": "object",
+            "required": [
+                "display_name",
+                "email",
+                "id",
+                "reason",
+                "version"
+            ],
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
                 }
             }
         },

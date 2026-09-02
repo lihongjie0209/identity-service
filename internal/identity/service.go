@@ -429,6 +429,62 @@ func (s *Service) UpdateUserStatus(ctx context.Context, id, status, reason strin
 	}
 	return s.repository.GetUser(ctx, id)
 }
+
+func (s *Service) UpdateUserProfile(
+	ctx context.Context,
+	id string,
+	displayName string,
+	email string,
+	phone string,
+	reason string,
+	version int64,
+) (User, error) {
+	id = strings.TrimSpace(id)
+	displayName = strings.TrimSpace(displayName)
+	email = strings.ToLower(strings.TrimSpace(email))
+	phone = strings.TrimSpace(phone)
+	reason = strings.TrimSpace(reason)
+	if id == "" || displayName == "" || email == "" || reason == "" || version < 1 {
+		return User{}, apperror.Invalid("id, display_name, email, reason, and a positive version are required", nil)
+	}
+	actor, err := principal.Require(ctx)
+	if err != nil {
+		return User{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	current, err := s.repository.GetUser(ctx, id)
+	if err != nil {
+		return User{}, translateIdentityError(err)
+	}
+	now := s.now().UTC()
+	updated := current
+	updated.DisplayName = displayName
+	updated.Email = email
+	updated.Phone = phone
+	updated.Version = version + 1
+	updated.UpdatedAt = now
+	updated.UpdatedBy = actor.ID
+	event, err := newOutboxEvent(
+		ctx,
+		"platform.identity.user.profile-updated.v1",
+		"platform.identity.v1.UserProfileUpdated",
+		id,
+		now,
+		&identityv1.UserProfileUpdatedEvent{User: protoIdentityUser(updated), Reason: reason},
+	)
+	if err != nil {
+		return User{}, apperror.Internal(err)
+	}
+	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+		if err := s.repository.UpdateUserProfile(ctx, tx, id, displayName, email, phone, actor.ID, version, now); err != nil {
+			return err
+		}
+		return s.repository.InsertOutbox(ctx, tx, event)
+	})
+	if err != nil {
+		return User{}, translateIdentityError(err)
+	}
+	return s.repository.GetUser(ctx, id)
+}
 func (s *Service) BatchGetUsers(ctx context.Context, ids []string) ([]User, error) {
 	users, err := s.repository.BatchGetUsers(ctx, ids)
 	return users, translateIdentityError(err)

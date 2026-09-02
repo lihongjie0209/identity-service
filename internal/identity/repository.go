@@ -161,6 +161,29 @@ func (r *Repository) UpdateUserStatus(ctx context.Context, tx *sqlx.Tx, id, stat
 	return requireAffected(result)
 }
 
+func (r *Repository) UpdateUserProfile(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	id string,
+	displayName string,
+	email string,
+	phone string,
+	actor string,
+	version int64,
+	now time.Time,
+) error {
+	query := r.db.Rebind("UPDATE users SET name=?, email=?, phone=?, version=version+1, updated_at=?, updated_by=? WHERE id=? AND version=?")
+	result, err := tx.ExecContext(ctx, query, displayName, email, phone, now, actor, id, version)
+	if err != nil {
+		message := strings.ToLower(err.Error())
+		if strings.Contains(message, "duplicate") || strings.Contains(message, "unique") {
+			return ErrConflict
+		}
+		return fmt.Errorf("update user profile: %w", err)
+	}
+	return requireAffected(result)
+}
+
 func (r *Repository) BatchGetUsers(ctx context.Context, ids []string) ([]User, error) {
 	if len(ids) == 0 {
 		return []User{}, nil

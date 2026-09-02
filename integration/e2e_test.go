@@ -277,6 +277,35 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		t.Fatalf("list identities status=%d body=%s", status, identitiesBody)
 	}
 	identityVersion := responseIdentityVersion(t, identitiesBody, userID)
+	updateProfileBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/identities/update-profile",
+		"Bearer "+newPasswordToken,
+		"",
+		fmt.Sprintf(
+			`{"id":%q,"display_name":"Alice Zhang","email":"alice.zhang@example.com","phone":"13800000000","reason":"integration profile test","version":%d}`,
+			userID,
+			identityVersion,
+		),
+	)
+	if status != http.StatusOK || !bytes.Contains(updateProfileBody, []byte(`"display_name":"Alice Zhang"`)) {
+		t.Fatalf("update identity profile status=%d body=%s", status, updateProfileBody)
+	}
+	updatedIdentityVersion := responseBodyVersion(t, updateProfileBody)
+	_, status = postJSONBody(
+		t,
+		baseURL+"/api/v1/identities/update-profile",
+		"Bearer "+newPasswordToken,
+		"",
+		fmt.Sprintf(
+			`{"id":%q,"display_name":"Stale Update","email":"stale@example.com","reason":"stale integration test","version":%d}`,
+			userID,
+			identityVersion,
+		),
+	)
+	if status != http.StatusConflict {
+		t.Fatalf("stale identity profile status=%d, want %d", status, http.StatusConflict)
+	}
 	updateStatusBody, status := postJSONBody(
 		t,
 		baseURL+"/api/v1/identities/update-status",
@@ -285,7 +314,7 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		fmt.Sprintf(
 			`{"id":%q,"status":"disabled","reason":"integration lifecycle test","version":%d}`,
 			userID,
-			identityVersion,
+			updatedIdentityVersion,
 		),
 	)
 	if status != http.StatusOK {
@@ -294,6 +323,22 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+newPasswordToken, "", `{}`); status != http.StatusUnauthorized {
 		t.Fatalf("disabled user session status = %d, want %d", status, http.StatusUnauthorized)
 	}
+}
+
+func responseBodyVersion(t *testing.T, data []byte) int64 {
+	t.Helper()
+	var response struct {
+		Body struct {
+			Version int64 `json:"version"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Body.Version < 1 {
+		t.Fatalf("response version is invalid: %s", data)
+	}
+	return response.Body.Version
 }
 
 func testPasswordResetHTTPFlow(t *testing.T, baseURL, psk string) {

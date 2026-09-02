@@ -564,6 +564,27 @@ definitions:
     required:
     - current_password
     type: object
+  httptransport.UpdateIdentityProfileRequest:
+    properties:
+      display_name:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      phone:
+        type: string
+      reason:
+        type: string
+      version:
+        type: integer
+    required:
+    - display_name
+    - email
+    - id
+    - reason
+    - version
+    type: object
   httptransport.UpdateIdentityStatusRequest:
     properties:
       id:
@@ -1229,6 +1250,34 @@ paths:
       - Bearer: []
       - PSK: []
       summary: Register a user identity
+      tags:
+      - identities
+  /api/v1/identities/update-profile:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Profile, audit reason, and version
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.UpdateIdentityProfileRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.IdentityResponseBody'
+              type: object
+      security:
+      - Bearer: []
+      summary: Update user profile with optimistic locking
       tags:
       - identities
   /api/v1/identities/update-status:
