@@ -43,6 +43,9 @@ type ChangePasswordResponseBody struct {
 	Changed         bool   `json:"changed"`
 	RevokedSessions uint64 `json:"revoked_sessions"`
 }
+type LogoutResponseBody struct {
+	Revoked bool `json:"revoked"`
+}
 type MFAStatusResponseBody struct {
 	Available              bool       `json:"available"`
 	Enabled                bool       `json:"enabled"`
@@ -185,6 +188,14 @@ type ServiceAccountPageResponseBody struct {
 type CreateServiceAccountResponseBody struct {
 	Account      ServiceAccountResponseBody `json:"account"`
 	ClientSecret string                     `json:"client_secret"`
+}
+type UpdateServiceAccountStatusResponseBody struct {
+	Updated bool `json:"updated"`
+}
+type ServiceAccountTokenResponseBody struct {
+	AccessToken string    `json:"access_token"`
+	TokenType   string    `json:"token_type"`
+	ExpiresAt   time.Time `json:"expires_at"`
 }
 type UpdateServiceAccountStatusRequest struct {
 	ID      string `json:"id" binding:"required"`
@@ -379,7 +390,7 @@ func (h *Handler) Refresh(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body LogoutRequest true "Session"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=LogoutResponseBody}
 // @Router /api/v1/auth/logout [post]
 func (h *Handler) Logout(c *gin.Context) {
 	var req LogoutRequest
@@ -391,7 +402,7 @@ func (h *Handler) Logout(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, gin.H{"revoked": true})
+	OK(c, LogoutResponseBody{Revoked: true})
 }
 
 // ChangePassword godoc
@@ -964,7 +975,7 @@ func (h *Handler) ListServiceAccounts(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body UpdateServiceAccountStatusRequest true "Status and version"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=UpdateServiceAccountStatusResponseBody}
 // @Router /api/v1/service-accounts/update-status [post]
 func (h *Handler) UpdateServiceAccountStatus(c *gin.Context) {
 	var req UpdateServiceAccountStatusRequest
@@ -976,7 +987,7 @@ func (h *Handler) UpdateServiceAccountStatus(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, gin.H{"updated": true})
+	OK(c, UpdateServiceAccountStatusResponseBody{Updated: true})
 }
 
 // ServiceAccountToken godoc
@@ -985,7 +996,7 @@ func (h *Handler) UpdateServiceAccountStatus(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body ServiceAccountTokenRequest true "Client credentials"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=ServiceAccountTokenResponseBody}
 // @Router /api/v1/auth/service-token [post]
 func (h *Handler) ServiceAccountToken(c *gin.Context) {
 	var req ServiceAccountTokenRequest
@@ -998,7 +1009,7 @@ func (h *Handler) ServiceAccountToken(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, gin.H{"access_token": token, "token_type": "Bearer", "expires_at": expiresAt})
+	OK(c, ServiceAccountTokenResponseBody{AccessToken: token, TokenType: "Bearer", ExpiresAt: expiresAt})
 }
 
 // Live godoc

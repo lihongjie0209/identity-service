@@ -188,7 +188,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/httptransport.Response"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/httptransport.LogoutResponseBody"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -631,7 +643,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/httptransport.Response"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/httptransport.ServiceAccountTokenResponseBody"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -1226,7 +1250,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/httptransport.Response"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/httptransport.UpdateServiceAccountStatusResponseBody"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -1896,6 +1932,14 @@
                 }
             }
         },
+        "httptransport.LogoutResponseBody": {
+            "type": "object",
+            "properties": {
+                "revoked": {
+                    "type": "boolean"
+                }
+            }
+        },
         "httptransport.MFASetupResponseBody": {
             "type": "object",
             "properties": {
@@ -2178,6 +2222,20 @@
                 }
             }
         },
+        "httptransport.ServiceAccountTokenResponseBody": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "token_type": {
+                    "type": "string"
+                }
+            }
+        },
         "httptransport.SessionPageResponseBody": {
             "type": "object",
             "properties": {
@@ -2300,6 +2358,14 @@
                 },
                 "version": {
                     "type": "integer"
+                }
+            }
+        },
+        "httptransport.UpdateServiceAccountStatusResponseBody": {
+            "type": "object",
+            "properties": {
+                "updated": {
+                    "type": "boolean"
                 }
             }
         },

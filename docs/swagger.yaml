@@ -291,6 +291,11 @@ definitions:
     required:
     - session_id
     type: object
+  httptransport.LogoutResponseBody:
+    properties:
+      revoked:
+        type: boolean
+    type: object
   httptransport.MFASetupResponseBody:
     properties:
       expires_at:
@@ -478,6 +483,15 @@ definitions:
     - client_id
     - client_secret
     type: object
+  httptransport.ServiceAccountTokenResponseBody:
+    properties:
+      access_token:
+        type: string
+      expires_at:
+        type: string
+      token_type:
+        type: string
+    type: object
   httptransport.SessionPageResponseBody:
     properties:
       items:
@@ -560,6 +574,11 @@ definitions:
     - id
     - status
     - version
+    type: object
+  httptransport.UpdateServiceAccountStatusResponseBody:
+    properties:
+      updated:
+        type: boolean
     type: object
   httptransport.VerifyMFAChallengeRequest:
     properties:
@@ -718,7 +737,12 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/httptransport.Response'
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.LogoutResponseBody'
+              type: object
       security:
       - Bearer: []
       summary: Revoke the current session
@@ -976,7 +1000,12 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/httptransport.Response'
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.ServiceAccountTokenResponseBody'
+              type: object
       summary: Issue a service-account access token
       tags:
       - authentication
@@ -1309,7 +1338,12 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/httptransport.Response'
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.UpdateServiceAccountStatusResponseBody'
+              type: object
       security:
       - Bearer: []
       summary: Enable or disable a service account with optimistic locking
