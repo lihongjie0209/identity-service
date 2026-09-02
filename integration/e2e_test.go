@@ -307,6 +307,7 @@ func testMFAHTTPFlow(t *testing.T, baseURL, psk string) {
 	if status != http.StatusOK {
 		t.Fatalf("register mfa user status=%d body=%s", status, registerBody)
 	}
+	bobUserID := responseUserID(t, registerBody)
 	loginBody, status := postJSONBody(
 		t,
 		baseURL+"/api/v1/auth/login",
@@ -374,6 +375,63 @@ func testMFAHTTPFlow(t *testing.T, baseURL, psk string) {
 	); status != http.StatusUnauthorized {
 		t.Fatalf("replayed mfa challenge status=%d, want %d", status, http.StatusUnauthorized)
 	}
+
+	adminRegisterBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/identities/register",
+		"PSK "+psk,
+		"",
+		`{"username":"mfa-admin","display_name":"MFA Admin","email":"mfa-admin@example.com","password":"correct horse battery staple"}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("register mfa admin status=%d body=%s", status, adminRegisterBody)
+	}
+	adminLoginBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/login",
+		"",
+		"",
+		`{"login":"mfa-admin","password":"correct horse battery staple"}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("mfa admin login status=%d body=%s", status, adminLoginBody)
+	}
+	adminToken, _, _ := responseTokens(t, adminLoginBody)
+	statusBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/identities/mfa/status",
+		"Bearer "+adminToken,
+		"",
+		fmt.Sprintf(`{"user_id":%q}`, bobUserID),
+	)
+	if status != http.StatusOK {
+		t.Fatalf("admin mfa status=%d body=%s", status, statusBody)
+	}
+	mfaVersion := responseMFAStatusVersion(t, statusBody)
+	resetBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/identities/mfa/reset",
+		"Bearer "+adminToken,
+		"",
+		fmt.Sprintf(`{"user_id":%q,"reason":"verified device loss","version":%d}`, bobUserID, mfaVersion),
+	)
+	if status != http.StatusOK {
+		t.Fatalf("admin mfa reset=%d body=%s", status, resetBody)
+	}
+	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+mfaToken, "", `{}`); status != http.StatusUnauthorized {
+		t.Fatalf("mfa reset session status=%d, want %d", status, http.StatusUnauthorized)
+	}
+	postResetLoginBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/login",
+		"",
+		"",
+		`{"login":"bob","password":"correct horse battery staple"}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("post-reset password login status=%d body=%s", status, postResetLoginBody)
+	}
+	_, _, _ = responseTokens(t, postResetLoginBody)
 }
 
 func responseUserID(t *testing.T, data []byte) string {
@@ -496,6 +554,23 @@ func responseMFAChallenge(t *testing.T, data []byte) string {
 		t.Fatalf("missing mfa challenge: %s", data)
 	}
 	return response.Body.Challenge
+}
+
+func responseMFAStatusVersion(t *testing.T, data []byte) int64 {
+	t.Helper()
+	var response struct {
+		Body struct {
+			Enabled bool  `json:"enabled"`
+			Version int64 `json:"version"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.Body.Enabled || response.Body.Version < 1 {
+		t.Fatalf("missing enabled mfa status: %s", data)
+	}
+	return response.Body.Version
 }
 
 func totpCode(t *testing.T, secret string, now time.Time) string {
