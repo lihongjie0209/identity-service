@@ -37,6 +37,8 @@ observability:
   tracing_enabled: false
 authorization:
   enabled: true
+mfa:
+  enabled: true
 outbound:
   grpc:
     authorization:

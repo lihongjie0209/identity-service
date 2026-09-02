@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"slices"
@@ -8,6 +9,25 @@ import (
 	"testing"
 	"time"
 )
+
+func TestConfigValidateMFASecrets(t *testing.T) {
+	t.Parallel()
+	cfg, err := LoadWithProfile("../../config/config.yaml", "development")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.MFA.Enabled = true
+	cfg.MFA.EncryptionKey = "invalid"
+	cfg.MFA.RecoveryPepper = "invalid"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "base64 encoded 32-byte") {
+		t.Fatalf("Validate() error = %v, want mfa key error", err)
+	}
+	cfg.MFA.EncryptionKey = base64.StdEncoding.EncodeToString([]byte("01234567890123456789012345678901"))
+	cfg.MFA.RecoveryPepper = base64.StdEncoding.EncodeToString([]byte("abcdefghijklmnopqrstuvwxyzABCDEF"))
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() with valid mfa keys: %v", err)
+	}
+}
 
 func TestConfig_AuthorizationRequiresConfiguredUpstream(t *testing.T) {
 	cfg, err := Load("../../config/config.yaml")

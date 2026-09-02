@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -26,6 +27,7 @@ type Config struct {
 	Observability Observability `mapstructure:"observability"`
 	Swagger       Swagger       `mapstructure:"swagger"`
 	JWT           JWT           `mapstructure:"jwt"`
+	MFA           MFA           `mapstructure:"mfa"`
 	Auth          Auth          `mapstructure:"auth"`
 	Authorization Authorization `mapstructure:"authorization"`
 	Cron          Cron          `mapstructure:"cron"`
@@ -146,6 +148,13 @@ type JWT struct {
 	TTL             time.Duration     `mapstructure:"ttl"`
 	KeyID           string            `mapstructure:"key_id"`
 	PreviousSecrets map[string]string `mapstructure:"previous_secrets"`
+}
+type MFA struct {
+	Enabled        bool          `mapstructure:"enabled"`
+	Issuer         string        `mapstructure:"issuer"`
+	EncryptionKey  string        `mapstructure:"encryption_key"`
+	RecoveryPepper string        `mapstructure:"recovery_pepper"`
+	ChallengeTTL   time.Duration `mapstructure:"challenge_ttl"`
 }
 type Auth struct {
 	ClientID        string   `mapstructure:"client_id"`
@@ -383,6 +392,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("jwt.ttl", "2h")
 	v.SetDefault("jwt.key_id", "identity-current")
 	v.SetDefault("jwt.previous_secrets", map[string]string{})
+	v.SetDefault("mfa.enabled", false)
+	v.SetDefault("mfa.issuer", "Microservice Platform")
+	v.SetDefault("mfa.encryption_key", "")
+	v.SetDefault("mfa.recovery_pepper", "")
+	v.SetDefault("mfa.challenge_ttl", "5m")
 	v.SetDefault("auth.client_id", "")
 	v.SetDefault("auth.client_secret", "")
 	v.SetDefault("auth.skip_http_paths", []string{"/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/service-token", "/api/v1/version"})
@@ -491,6 +505,14 @@ func (c Config) Validate() error {
 	if (c.Auth.ClientID != "" || c.Auth.ClientSecret != "") && len(c.JWT.Secret) < 32 {
 		return errors.New("jwt.secret must contain at least 32 bytes when auth is enabled")
 	}
+	if c.MFA.Enabled {
+		if strings.TrimSpace(c.MFA.Issuer) == "" || c.MFA.ChallengeTTL <= 0 || c.MFA.ChallengeTTL > 15*time.Minute {
+			return errors.New("enabled mfa requires an issuer and challenge_ttl between 1ns and 15m")
+		}
+		if !isBase64Key(c.MFA.EncryptionKey, 32) || !isBase64Key(c.MFA.RecoveryPepper, 32) {
+			return errors.New("enabled mfa requires base64 encoded 32-byte encryption_key and recovery_pepper")
+		}
+	}
 	if c.App.Env == "production" && !c.Authorization.Enabled {
 		return errors.New("authorization must be enabled in production")
 	}
@@ -563,6 +585,22 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func isBase64Key(value string, size int) bool {
+	value = strings.TrimSpace(value)
+	for _, encoding := range []*base64.Encoding{
+		base64.StdEncoding,
+		base64.RawStdEncoding,
+		base64.URLEncoding,
+		base64.RawURLEncoding,
+	} {
+		decoded, err := encoding.DecodeString(value)
+		if err == nil && len(decoded) == size {
+			return true
+		}
+	}
+	return false
 }
 
 func validateClientPolicy(name string, auth ClientAuth, retry Retry, breaker Breaker, tls ClientTLS) error {

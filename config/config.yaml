@@ -82,6 +82,13 @@ jwt:
   key_id: identity-current
   # Map old kid -> old secret during the verification grace period.
   previous_secrets: {}
+mfa:
+  enabled: false
+  issuer: Microservice Platform
+  # Inject both values as base64 encoded 32-byte secrets when enabled.
+  encryption_key: ""
+  recovery_pepper: ""
+  challenge_ttl: 5m
 auth:
   client_id: ""
   client_secret: ""

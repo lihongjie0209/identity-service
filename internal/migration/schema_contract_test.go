@@ -68,3 +68,37 @@ func TestMySQLSessionClientMigrationBackfillsBeforeNotNull(t *testing.T) {
 		}
 	}
 }
+
+func TestMFAMigrationEncryptsSecretsAndAuditsMutableRows(t *testing.T) {
+	t.Parallel()
+	for _, database := range []string{"postgres", "mysql", "kingbase"} {
+		path := filepath.Join("..", "..", "migrations", database, "000005_mfa.up.sql")
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sql := string(content)
+		for _, table := range []string{"user_mfa", "mfa_recovery_codes", "mfa_login_challenges"} {
+			if !strings.Contains(sql, "CREATE TABLE "+table) {
+				t.Errorf("%s migration missing table %q", database, table)
+			}
+		}
+		for _, required := range []string{
+			"secret_ciphertext",
+			"last_used_step BIGINT NOT NULL DEFAULT -1",
+			"version BIGINT NOT NULL DEFAULT 1",
+			"created_at",
+			"updated_at",
+			"created_by",
+			"updated_by",
+			"idx_mfa_login_challenges_expiry",
+		} {
+			if !strings.Contains(sql, required) {
+				t.Errorf("%s migration missing %q", database, required)
+			}
+		}
+		if strings.Contains(sql, "totp_secret TEXT") || strings.Contains(sql, "challenge_token") {
+			t.Errorf("%s migration persists plaintext mfa material", database)
+		}
+	}
+}
