@@ -154,8 +154,25 @@ definitions:
       revoked_sessions:
         type: integer
     type: object
+  httptransport.IdentityPageResponseBody:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/httptransport.IdentityResponseBody'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
   httptransport.IdentityResponseBody:
     properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
       display_name:
         type: string
       email:
@@ -165,6 +182,10 @@ definitions:
       phone:
         type: string
       status:
+        type: string
+      updated_at:
+        type: string
+      updated_by:
         type: string
       username:
         type: string
@@ -1036,7 +1057,12 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/httptransport.Response'
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.IdentityPageResponseBody'
+              type: object
       security:
       - Bearer: []
       summary: List user identities

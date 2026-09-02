@@ -196,13 +196,23 @@ type ServiceAccountTokenRequest struct {
 	ClientSecret string `json:"client_secret" binding:"required"`
 }
 type IdentityResponseBody struct {
-	ID          string `json:"id"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	Email       string `json:"email"`
-	Phone       string `json:"phone"`
-	Status      string `json:"status"`
-	Version     int64  `json:"version"`
+	ID          string    `json:"id"`
+	Username    string    `json:"username"`
+	DisplayName string    `json:"display_name"`
+	Email       string    `json:"email"`
+	Phone       string    `json:"phone"`
+	Status      string    `json:"status"`
+	Version     int64     `json:"version"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	CreatedBy   string    `json:"created_by"`
+	UpdatedBy   string    `json:"updated_by"`
+}
+type IdentityPageResponseBody struct {
+	Items    []IdentityResponseBody `json:"items"`
+	Total    int64                  `json:"total"`
+	Page     int                    `json:"page"`
+	PageSize int                    `json:"page_size"`
 }
 type UpdateIdentityStatusRequest struct {
 	ID      string `json:"id" binding:"required"`
@@ -701,7 +711,7 @@ func (h *Handler) RegisterIdentity(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, created)
+	OK(c, identityResponse(created))
 }
 
 // ListIdentities godoc
@@ -711,7 +721,7 @@ func (h *Handler) RegisterIdentity(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param request body ListIdentitiesRequest true "Filters and pagination"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=IdentityPageResponseBody}
 // @Router /api/v1/identities/list [post]
 func (h *Handler) ListIdentities(c *gin.Context) {
 	var req ListIdentitiesRequest
@@ -724,7 +734,7 @@ func (h *Handler) ListIdentities(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, page)
+	OK(c, identityPageResponse(page))
 }
 
 // UpdateIdentityStatus godoc
@@ -747,7 +757,24 @@ func (h *Handler) UpdateIdentityStatus(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, updated)
+	OK(c, identityResponse(updated))
+}
+
+func identityResponse(user identitydomain.User) IdentityResponseBody {
+	return IdentityResponseBody{
+		ID: user.ID, Username: user.Username, DisplayName: user.DisplayName,
+		Email: user.Email, Phone: user.Phone, Status: user.Status,
+		Version: user.Version, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt,
+		CreatedBy: user.CreatedBy, UpdatedBy: user.UpdatedBy,
+	}
+}
+
+func identityPageResponse(page identitydomain.Page[identitydomain.User]) IdentityPageResponseBody {
+	items := make([]IdentityResponseBody, len(page.Items))
+	for i, user := range page.Items {
+		items[i] = identityResponse(user)
+	}
+	return IdentityPageResponseBody{Items: items, Total: page.Total, Page: page.Page, PageSize: page.PageSize}
 }
 
 // IssuePasswordReset godoc
