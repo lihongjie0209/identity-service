@@ -80,7 +80,7 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		Observability: config.Observability{MetricsEnabled: true},
 		JWT:           config.JWT{Issuer: "integration", Secret: secret, TTL: time.Hour},
 		MFA:           config.MFA{Enabled: true, Issuer: "Platform Integration", EncryptionKey: mfaEncryptionKey, RecoveryPepper: mfaRecoveryPepper, ChallengeTTL: 5 * time.Minute},
-		Auth:          config.Auth{SkipHTTPPaths: []string{"/api/v1/auth/login", "/api/v1/auth/mfa/verify", "/api/v1/auth/refresh", "/api/v1/version"}, SkipGRPCMethods: []string{"/grpc.health.v1.Health/*"}, PSK: config.PSK{Enabled: true, Key: secret, HTTPPaths: []string{"/api/v1/identities/register"}, GRPCMethods: []string{"/platform.identity.v1.IdentityService/GetServiceAccount"}}},
+		Auth:          config.Auth{SkipHTTPPaths: []string{"/api/v1/auth/login", "/api/v1/auth/mfa/verify", "/api/v1/auth/refresh", "/api/v1/auth/password-reset/confirm", "/api/v1/version"}, SkipGRPCMethods: []string{"/grpc.health.v1.Health/*"}, PSK: config.PSK{Enabled: true, Key: secret, HTTPPaths: []string{"/api/v1/identities/register"}, GRPCMethods: []string{"/platform.identity.v1.IdentityService/GetServiceAccount"}}},
 		Cron:          config.Cron{Enabled: false, Timezone: "UTC"},
 		User:          config.User{CacheTTL: time.Minute, LockTTL: 10 * time.Second, LockRetryDelay: 20 * time.Millisecond},
 		Idempotency:   config.Idempotency{Enabled: true, ProcessingTTL: 30 * time.Second, ResultTTL: time.Hour, FailureTTL: time.Minute},
@@ -260,6 +260,7 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		t.Fatalf("logged out session status = %d, want %d", status, http.StatusUnauthorized)
 	}
 	testMFAHTTPFlow(t, baseURL, secret)
+	testPasswordResetHTTPFlow(t, baseURL, secret)
 	lifecycleLoginBody, status := postJSONBody(t, baseURL+"/api/v1/auth/login", "", "", `{"login":"alice","password":"different horse battery staple"}`)
 	if status != http.StatusOK {
 		t.Fatalf("lifecycle login status=%d body=%s", status, lifecycleLoginBody)
@@ -293,6 +294,128 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+newPasswordToken, "", `{}`); status != http.StatusUnauthorized {
 		t.Fatalf("disabled user session status = %d, want %d", status, http.StatusUnauthorized)
 	}
+}
+
+func testPasswordResetHTTPFlow(t *testing.T, baseURL, psk string) {
+	t.Helper()
+	registerBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/identities/register",
+		"PSK "+psk,
+		"",
+		`{"username":"recovery-user","display_name":"Recovery User","email":"recovery@example.com","password":"correct horse battery staple"}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("register password recovery user status=%d body=%s", status, registerBody)
+	}
+	userID := responseUserID(t, registerBody)
+	loginBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/login",
+		"",
+		"",
+		`{"login":"recovery-user","password":"correct horse battery staple"}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("initial password recovery login status=%d body=%s", status, loginBody)
+	}
+	oldAccessToken, _, _ := responseTokens(t, loginBody)
+
+	adminRegisterBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/identities/register",
+		"PSK "+psk,
+		"",
+		`{"username":"recovery-admin","display_name":"Recovery Admin","email":"recovery-admin@example.com","password":"correct horse battery staple"}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("register password recovery admin status=%d body=%s", status, adminRegisterBody)
+	}
+	adminLoginBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/login",
+		"",
+		"",
+		`{"login":"recovery-admin","password":"correct horse battery staple"}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("password recovery admin login status=%d body=%s", status, adminLoginBody)
+	}
+	adminToken, _, _ := responseTokens(t, adminLoginBody)
+
+	firstIssueBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/identities/password-reset/issue",
+		"Bearer "+adminToken,
+		"",
+		fmt.Sprintf(`{"user_id":%q,"reason":"verified account ownership"}`, userID),
+	)
+	if status != http.StatusOK {
+		t.Fatalf("first password reset issue status=%d body=%s", status, firstIssueBody)
+	}
+	firstToken := responsePasswordResetToken(t, firstIssueBody)
+	secondIssueBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/identities/password-reset/issue",
+		"Bearer "+adminToken,
+		"",
+		fmt.Sprintf(`{"user_id":%q,"reason":"reissued through verified channel"}`, userID),
+	)
+	if status != http.StatusOK {
+		t.Fatalf("second password reset issue status=%d body=%s", status, secondIssueBody)
+	}
+	secondToken := responsePasswordResetToken(t, secondIssueBody)
+	if status := postJSON(
+		t,
+		baseURL+"/api/v1/auth/password-reset/confirm",
+		"",
+		"",
+		fmt.Sprintf(`{"reset_token":%q,"new_password":"different horse battery staple"}`, firstToken),
+	); status != http.StatusUnauthorized {
+		t.Fatalf("superseded password reset token status=%d, want %d", status, http.StatusUnauthorized)
+	}
+	confirmBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/password-reset/confirm",
+		"",
+		"",
+		fmt.Sprintf(`{"reset_token":%q,"new_password":"different horse battery staple"}`, secondToken),
+	)
+	if status != http.StatusOK || !bytes.Contains(confirmBody, []byte(`"changed":true`)) {
+		t.Fatalf("confirm password reset status=%d body=%s", status, confirmBody)
+	}
+	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+oldAccessToken, "", `{}`); status != http.StatusUnauthorized {
+		t.Fatalf("pre-reset session status=%d, want %d", status, http.StatusUnauthorized)
+	}
+	if status := postJSON(
+		t,
+		baseURL+"/api/v1/auth/password-reset/confirm",
+		"",
+		"",
+		fmt.Sprintf(`{"reset_token":%q,"new_password":"another horse battery staple"}`, secondToken),
+	); status != http.StatusUnauthorized {
+		t.Fatalf("replayed password reset token status=%d, want %d", status, http.StatusUnauthorized)
+	}
+	if status := postJSON(
+		t,
+		baseURL+"/api/v1/auth/login",
+		"",
+		"",
+		`{"login":"recovery-user","password":"correct horse battery staple"}`,
+	); status != http.StatusUnauthorized {
+		t.Fatalf("old password after reset status=%d, want %d", status, http.StatusUnauthorized)
+	}
+	newLoginBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/login",
+		"",
+		"",
+		`{"login":"recovery-user","password":"different horse battery staple"}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("new password after reset status=%d body=%s", status, newLoginBody)
+	}
+	_, _, _ = responseTokens(t, newLoginBody)
 }
 
 func testMFAHTTPFlow(t *testing.T, baseURL, psk string) {
@@ -445,6 +568,23 @@ func responseUserID(t *testing.T, data []byte) string {
 		t.Fatal(err)
 	}
 	return response.Body.ID
+}
+
+func responsePasswordResetToken(t *testing.T, data []byte) string {
+	t.Helper()
+	var response struct {
+		Body struct {
+			ResetToken string    `json:"reset_token"`
+			ExpiresAt  time.Time `json:"expires_at"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Body.ResetToken == "" || !response.Body.ExpiresAt.After(time.Now()) {
+		t.Fatalf("missing password reset issue: %s", data)
+	}
+	return response.Body.ResetToken
 }
 
 func responseTokens(t *testing.T, data []byte) (string, string, string) {
