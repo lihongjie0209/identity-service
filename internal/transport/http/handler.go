@@ -192,6 +192,14 @@ type CreateServiceAccountResponseBody struct {
 type UpdateServiceAccountStatusResponseBody struct {
 	Updated bool `json:"updated"`
 }
+type RotateServiceAccountSecretRequest struct {
+	ID      string `json:"id" binding:"required"`
+	Version int64  `json:"version" binding:"required"`
+}
+type RotateServiceAccountSecretResponseBody struct {
+	ClientSecret string `json:"client_secret"`
+	Version      int64  `json:"version"`
+}
 type ServiceAccountTokenResponseBody struct {
 	AccessToken string    `json:"access_token"`
 	TokenType   string    `json:"token_type"`
@@ -988,6 +996,29 @@ func (h *Handler) UpdateServiceAccountStatus(c *gin.Context) {
 		return
 	}
 	OK(c, UpdateServiceAccountStatusResponseBody{Updated: true})
+}
+
+// RotateServiceAccountSecret godoc
+// @Summary Rotate a service-account secret with optimistic locking and return it once
+// @Tags service-accounts
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body RotateServiceAccountSecretRequest true "Service account and version"
+// @Success 200 {object} Response{body=RotateServiceAccountSecretResponseBody}
+// @Router /api/v1/service-accounts/rotate-secret [post]
+func (h *Handler) RotateServiceAccountSecret(c *gin.Context) {
+	var req RotateServiceAccountSecretRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	secret, version, err := h.identities.RotateServiceAccountSecret(c.Request.Context(), req.ID, req.Version)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, RotateServiceAccountSecretResponseBody{ClientSecret: secret, Version: version})
 }
 
 // ServiceAccountToken godoc

@@ -673,12 +673,7 @@ func (s *Service) CreateServiceAccount(ctx context.Context, name string, audienc
 	if err != nil {
 		return ServiceAccount{}, "", apperror.Unauthorized("authenticated actor is required")
 	}
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return ServiceAccount{}, "", apperror.Internal(err)
-	}
-	secret := base64.RawURLEncoding.EncodeToString(raw)
-	hash, err := s.hasher.Hash(secret)
+	secret, hash, err := s.newServiceAccountSecret()
 	if err != nil {
 		return ServiceAccount{}, "", apperror.Internal(err)
 	}
@@ -701,6 +696,57 @@ func (s *Service) CreateServiceAccount(ctx context.Context, name string, audienc
 	}
 	return account, secret, nil
 }
+
+func (s *Service) RotateServiceAccountSecret(ctx context.Context, id string, version int64) (string, int64, error) {
+	id = strings.TrimSpace(id)
+	if id == "" || version < 1 {
+		return "", 0, apperror.Invalid("service account id and version are required", nil)
+	}
+	actor, err := principal.Require(ctx)
+	if err != nil {
+		return "", 0, apperror.Unauthorized("authenticated actor is required")
+	}
+	secret, hash, err := s.newServiceAccountSecret()
+	if err != nil {
+		return "", 0, apperror.Internal(err)
+	}
+	now := s.now().UTC()
+	nextVersion := version + 1
+	event, err := newOutboxEvent(
+		ctx,
+		"platform.identity.service-account.secret-rotated.v1",
+		"platform.identity.v1.ServiceAccountSecretRotated",
+		id,
+		now,
+		&identityv1.ServiceAccountSecretRotatedEvent{ServiceAccountId: id, Version: nextVersion},
+	)
+	if err != nil {
+		return "", 0, apperror.Internal(err)
+	}
+	if err := s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+		if err := s.repository.RotateServiceAccountSecret(ctx, tx, id, hash, actor.ID, version, now); err != nil {
+			return err
+		}
+		return s.repository.InsertOutbox(ctx, tx, event)
+	}); err != nil {
+		return "", 0, translateIdentityError(err)
+	}
+	return secret, nextVersion, nil
+}
+
+func (s *Service) newServiceAccountSecret() (string, string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", "", fmt.Errorf("generate service account secret: %w", err)
+	}
+	secret := base64.RawURLEncoding.EncodeToString(raw)
+	hash, err := s.hasher.Hash(secret)
+	if err != nil {
+		return "", "", fmt.Errorf("hash service account secret: %w", err)
+	}
+	return secret, hash, nil
+}
+
 func (s *Service) UpdateServiceAccountStatus(ctx context.Context, id, status string, version int64) error {
 	if status != StatusActive && status != StatusDisabled {
 		return apperror.Invalid("status must be active or disabled", nil)

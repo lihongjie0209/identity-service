@@ -93,6 +93,26 @@ func TestIdempotencyExecutionDoesNotCacheSensitiveTokenRoute(t *testing.T) {
 	}
 }
 
+func TestIdempotencyExecutionDoesNotCacheOneTimeServiceAccountSecret(t *testing.T) {
+	t.Parallel()
+	manager := &fakeIdempotencyManager{decision: idempotency.Decision{State: idempotency.StateConflict}}
+	calls := 0
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(idempotency.WithContext(c.Request.Context(), "operation-1"))
+		c.Next()
+	}, IdempotencyExecution(manager, []string{"/api/v1/service-accounts/update-status"}, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	router.POST("/api/v1/service-accounts/rotate-secret", func(c *gin.Context) {
+		calls++
+		OK(c, gin.H{"client_secret": "one-time-secret"})
+	})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/service-accounts/rotate-secret", nil))
+	if calls != 1 || manager.beginKey != "" || recorder.Code != http.StatusOK {
+		t.Fatalf("calls=%d key=%q status=%d", calls, manager.beginKey, recorder.Code)
+	}
+}
+
 type authorizationStub struct{ err error }
 
 func (a authorizationStub) Authorize(context.Context, principal.Principal, platformauthz.Requirement) error {
@@ -101,7 +121,7 @@ func (a authorizationStub) Authorize(context.Context, principal.Principal, platf
 
 func TestIdentityHTTPRequirementCoversAdministrationOnly(t *testing.T) {
 	t.Parallel()
-	for _, route := range []string{"/api/v1/sessions/list", "/api/v1/sessions/revoke", "/api/v1/identities/register", "/api/v1/identities/list", "/api/v1/identities/update-status", "/api/v1/identities/password-reset/issue", "/api/v1/identities/mfa/status", "/api/v1/identities/mfa/reset", "/api/v1/service-accounts/create", "/api/v1/service-accounts/list", "/api/v1/service-accounts/update-status"} {
+	for _, route := range []string{"/api/v1/sessions/list", "/api/v1/sessions/revoke", "/api/v1/identities/register", "/api/v1/identities/list", "/api/v1/identities/update-status", "/api/v1/identities/password-reset/issue", "/api/v1/identities/mfa/status", "/api/v1/identities/mfa/reset", "/api/v1/service-accounts/create", "/api/v1/service-accounts/list", "/api/v1/service-accounts/update-status", "/api/v1/service-accounts/rotate-secret"} {
 		requirement, ok := identityHTTPRequirement(route)
 		if !ok || requirement.Resource == "" || requirement.Action == "" || requirement.Scope != platformauthz.ScopePlatform {
 			t.Fatalf("route %q requirement = %+v, %v", route, requirement, ok)

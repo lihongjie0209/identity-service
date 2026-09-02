@@ -435,6 +435,23 @@ definitions:
     - session_id
     - version
     type: object
+  httptransport.RotateServiceAccountSecretRequest:
+    properties:
+      id:
+        type: string
+      version:
+        type: integer
+    required:
+    - id
+    - version
+    type: object
+  httptransport.RotateServiceAccountSecretResponseBody:
+    properties:
+      client_secret:
+        type: string
+      version:
+        type: integer
+    type: object
   httptransport.ServiceAccountPageResponseBody:
     properties:
       items:
@@ -1319,6 +1336,35 @@ paths:
       security:
       - Bearer: []
       summary: List service accounts
+      tags:
+      - service-accounts
+  /api/v1/service-accounts/rotate-secret:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Service account and version
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.RotateServiceAccountSecretRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.RotateServiceAccountSecretResponseBody'
+              type: object
+      security:
+      - Bearer: []
+      summary: Rotate a service-account secret with optimistic locking and return
+        it once
       tags:
       - service-accounts
   /api/v1/service-accounts/update-status:

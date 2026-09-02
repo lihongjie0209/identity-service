@@ -109,8 +109,21 @@ func TestRepositoryAndMigrations(t *testing.T) {
 			if err != nil || serviceToken == "" {
 				t.Fatalf("service token error=%v", err)
 			}
+			rotatedSecret, rotatedVersion, err := service.RotateServiceAccountSecret(adminCtx, account.ID, account.Version)
+			if err != nil || rotatedSecret == "" || rotatedVersion != account.Version+1 {
+				t.Fatalf("rotate service secret version=%d error=%v", rotatedVersion, err)
+			}
+			if _, _, err := service.ServiceAccountToken(ctx, account.ClientID, secret); err == nil {
+				t.Fatal("old service account secret remains valid after rotation")
+			}
+			if token, _, err := service.ServiceAccountToken(ctx, account.ClientID, rotatedSecret); err != nil || token == "" {
+				t.Fatalf("rotated service token error=%v", err)
+			}
+			if _, _, err := service.RotateServiceAccountSecret(adminCtx, account.ID, account.Version); err == nil {
+				t.Fatal("stale service account version was accepted")
+			}
 			var outboxCount int
-			if err := db.GetContext(ctx, &outboxCount, "SELECT COUNT(*) FROM outbox_events"); err != nil || outboxCount != 3 {
+			if err := db.GetContext(ctx, &outboxCount, "SELECT COUNT(*) FROM outbox_events"); err != nil || outboxCount != 4 {
 				t.Fatalf("outbox count=%d err=%v", outboxCount, err)
 			}
 			if err := db.Close(); err != nil {

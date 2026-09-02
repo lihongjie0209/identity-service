@@ -87,6 +87,7 @@ func NewServer(lc fx.Lifecycle, cfg config.Config, handler *Handler, authService
 	api.POST("/service-accounts/create", handler.CreateServiceAccount)
 	api.POST("/service-accounts/list", handler.ListServiceAccounts)
 	api.POST("/service-accounts/update-status", handler.UpdateServiceAccountStatus)
+	api.POST("/service-accounts/rotate-secret", handler.RotateServiceAccountSecret)
 	api.POST("/version", handler.Version)
 	api.POST("/me", handler.Me)
 	server := &http.Server{Addr: cfg.HTTP.Address, Handler: router, ReadTimeout: cfg.HTTP.ReadTimeout, WriteTimeout: cfg.HTTP.WriteTimeout, IdleTimeout: cfg.HTTP.IdleTimeout}

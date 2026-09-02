@@ -494,6 +494,23 @@ func (r *Repository) UpdateServiceAccountStatus(ctx context.Context, tx *sqlx.Tx
 	return requireAffected(result)
 }
 
+func (r *Repository) RotateServiceAccountSecret(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	id string,
+	secretHash string,
+	actor string,
+	version int64,
+	now time.Time,
+) error {
+	query := r.db.Rebind("UPDATE service_accounts SET secret_hash = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ? AND version = ?")
+	result, err := tx.ExecContext(ctx, query, secretHash, now, actor, id, version)
+	if err != nil {
+		return fmt.Errorf("rotate service account secret: %w", err)
+	}
+	return requireAffected(result)
+}
+
 func requireAffected(result sql.Result) error {
 	count, err := result.RowsAffected()
 	if err != nil {
