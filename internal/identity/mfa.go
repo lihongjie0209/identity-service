@@ -67,6 +67,13 @@ type MFARecoveryRotation struct {
 	Version       int64
 }
 
+type AdminMFAResetResult struct {
+	UserID          string
+	Reset           bool
+	RevokedSessions uint64
+	Version         int64
+}
+
 type LoginResult struct {
 	Tokens             Tokens
 	MFARequired        bool

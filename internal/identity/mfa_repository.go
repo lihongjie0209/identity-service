@@ -141,6 +141,35 @@ func (r *Repository) DisableMFA(
 	return requireAffected(result)
 }
 
+func (r *Repository) AdminResetMFA(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	userID string,
+	actor string,
+	expectedVersion int64,
+	now time.Time,
+) error {
+	query := r.db.Rebind(
+		"UPDATE user_mfa SET status = ?, last_used_step = -1, enabled_at = NULL, " +
+			"version = version + 1, updated_at = ?, updated_by = ? " +
+			"WHERE user_id = ? AND status = ? AND version = ?",
+	)
+	result, err := tx.ExecContext(
+		ctx,
+		query,
+		MFAStatusDisabled,
+		now,
+		actor,
+		userID,
+		MFAStatusEnabled,
+		expectedVersion,
+	)
+	if err != nil {
+		return fmt.Errorf("administratively reset mfa: %w", err)
+	}
+	return requireAffected(result)
+}
+
 func (r *Repository) ReplaceRecoveryCodes(
 	ctx context.Context,
 	tx *sqlx.Tx,

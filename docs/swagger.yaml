@@ -29,6 +29,37 @@ definitions:
       status:
         type: string
     type: object
+  httptransport.AdminMFAStatusRequest:
+    properties:
+      user_id:
+        type: string
+    required:
+    - user_id
+    type: object
+  httptransport.AdminResetMFARequest:
+    properties:
+      reason:
+        type: string
+      user_id:
+        type: string
+      version:
+        type: integer
+    required:
+    - reason
+    - user_id
+    - version
+    type: object
+  httptransport.AdminResetMFAResponseBody:
+    properties:
+      reset:
+        type: boolean
+      revoked_sessions:
+        type: integer
+      user_id:
+        type: string
+      version:
+        type: integer
+    type: object
   httptransport.ChangePasswordRequest:
     properties:
       current_password:
@@ -945,6 +976,66 @@ paths:
       security:
       - Bearer: []
       summary: List user identities
+      tags:
+      - identities
+  /api/v1/identities/mfa/reset:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Target user, reason, and expected MFA version
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.AdminResetMFARequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.AdminResetMFAResponseBody'
+              type: object
+        "409":
+          description: 'Code 30009: stale resource version'
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      security:
+      - Bearer: []
+      summary: Reset a user's MFA and revoke all sessions
+      tags:
+      - identities
+  /api/v1/identities/mfa/status:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Target user
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.AdminMFAStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.MFAStatusResponseBody'
+              type: object
+      security:
+      - Bearer: []
+      summary: Get a user's MFA status for platform administration
       tags:
       - identities
   /api/v1/identities/register:

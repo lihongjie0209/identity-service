@@ -202,6 +202,50 @@ func TestRepositoryRecoveryCodeRotationRequiresNewStepAndExpectedVersion(t *test
 	}
 }
 
+func TestRepositoryAdminResetMFARequiresEnabledStatusAndExpectedVersion(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	sqlDB := sqlx.NewDb(db, "sqlmock")
+	repository := NewRepository(sqlDB)
+	now := time.Date(2026, time.September, 2, 11, 0, 0, 0, time.UTC)
+	mock.ExpectBegin()
+	tx, err := sqlDB.BeginTxx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectExec(regexp.QuoteMeta(
+		"UPDATE user_mfa SET status = ?, last_used_step = -1, enabled_at = NULL, "+
+			"version = version + 1, updated_at = ?, updated_by = ? "+
+			"WHERE user_id = ? AND status = ? AND version = ?",
+	)).
+		WithArgs(MFAStatusDisabled, now, "admin-1", "user-1", MFAStatusEnabled, int64(9)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := repository.AdminResetMFA(t.Context(), tx, "user-1", "admin-1", 9, now); err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServiceAdminResetMFARejectsSelfServiceBypass(t *testing.T) {
+	t.Parallel()
+	service := &Service{}
+	_, err := service.AdminResetMFA(mfaUserContext(), "user-1", "lost authenticator", 2)
+	var appErr *apperror.Error
+	if !errors.As(err, &appErr) || appErr.Code != apperror.CodeInvalidArgument {
+		t.Fatalf("AdminResetMFA() error = %v", err)
+	}
+}
+
 func TestRepositoryConsumeMFAChallengeRequiresExpiryAndVersion(t *testing.T) {
 	t.Parallel()
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))

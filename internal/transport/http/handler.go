@@ -51,6 +51,20 @@ type MFAStatusResponseBody struct {
 	Version                int64      `json:"version"`
 	EnabledAt              *time.Time `json:"enabled_at,omitempty"`
 }
+type AdminMFAStatusRequest struct {
+	UserID string `json:"user_id" binding:"required"`
+}
+type AdminResetMFARequest struct {
+	UserID  string `json:"user_id" binding:"required"`
+	Reason  string `json:"reason" binding:"required"`
+	Version int64  `json:"version" binding:"required"`
+}
+type AdminResetMFAResponseBody struct {
+	UserID          string `json:"user_id"`
+	Reset           bool   `json:"reset"`
+	RevokedSessions uint64 `json:"revoked_sessions"`
+	Version         int64  `json:"version"`
+}
 type StartMFASetupRequest struct {
 	CurrentPassword string `json:"current_password" binding:"required"`
 }
@@ -718,6 +732,65 @@ func (h *Handler) UpdateIdentityStatus(c *gin.Context) {
 		return
 	}
 	OK(c, updated)
+}
+
+// AdminMFAStatus godoc
+// @Summary Get a user's MFA status for platform administration
+// @Tags identities
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body AdminMFAStatusRequest true "Target user"
+// @Success 200 {object} Response{body=MFAStatusResponseBody}
+// @Router /api/v1/identities/mfa/status [post]
+func (h *Handler) AdminMFAStatus(c *gin.Context) {
+	var req AdminMFAStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	status, err := h.identities.AdminMFAStatus(c.Request.Context(), req.UserID)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, MFAStatusResponseBody{
+		Available:              status.Available,
+		Enabled:                status.Enabled,
+		Status:                 status.Status,
+		RecoveryCodesRemaining: status.RecoveryCodesRemaining,
+		Version:                status.Version,
+		EnabledAt:              status.EnabledAt,
+	})
+}
+
+// AdminResetMFA godoc
+// @Summary Reset a user's MFA and revoke all sessions
+// @Tags identities
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body AdminResetMFARequest true "Target user, reason, and expected MFA version"
+// @Success 200 {object} Response{body=AdminResetMFAResponseBody}
+// @Failure 409 {object} Response "Code 30009: stale resource version"
+// @Router /api/v1/identities/mfa/reset [post]
+func (h *Handler) AdminResetMFA(c *gin.Context) {
+	var req AdminResetMFARequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	result, err := h.identities.AdminResetMFA(c.Request.Context(), req.UserID, req.Reason, req.Version)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, AdminResetMFAResponseBody{
+		UserID:          result.UserID,
+		Reset:           result.Reset,
+		RevokedSessions: result.RevokedSessions,
+		Version:         result.Version,
+	})
 }
 
 // JWKS godoc

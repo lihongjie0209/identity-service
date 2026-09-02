@@ -195,6 +195,41 @@ func (s *Service) MFAStatus(ctx context.Context) (MFAStatus, error) {
 	}, nil
 }
 
+func (s *Service) AdminMFAStatus(ctx context.Context, userID string) (MFAStatus, error) {
+	if _, err := principal.Require(ctx); err != nil {
+		return MFAStatus{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return MFAStatus{}, apperror.Invalid("user_id is required", nil)
+	}
+	if _, err := s.repository.GetUser(ctx, userID); err != nil {
+		return MFAStatus{}, translateIdentityError(err)
+	}
+	enrollment, err := s.repository.GetMFA(ctx, userID)
+	if errors.Is(err, ErrNotFound) {
+		return MFAStatus{Available: true, Status: MFAStatusDisabled}, nil
+	}
+	if err != nil {
+		return MFAStatus{}, translateIdentityError(err)
+	}
+	remaining := int64(0)
+	if enrollment.Status == MFAStatusEnabled {
+		remaining, err = s.repository.CountRecoveryCodes(ctx, userID)
+		if err != nil {
+			return MFAStatus{}, translateIdentityError(err)
+		}
+	}
+	return MFAStatus{
+		Available:              true,
+		Enabled:                enrollment.Status == MFAStatusEnabled,
+		Status:                 enrollment.Status,
+		RecoveryCodesRemaining: remaining,
+		Version:                enrollment.Version,
+		EnabledAt:              enrollment.EnabledAt,
+	}, nil
+}
+
 func (s *Service) StartMFASetup(ctx context.Context, currentPassword string) (MFASetup, error) {
 	actor, err := requireMFAUser(ctx)
 	if err != nil {
@@ -502,6 +537,75 @@ func (s *Service) RegenerateMFARecoveryCodes(
 		return MFARecoveryRotation{}, translateIdentityError(err)
 	}
 	return MFARecoveryRotation{RecoveryCodes: codes, Version: version + 1}, nil
+}
+
+func (s *Service) AdminResetMFA(
+	ctx context.Context,
+	userID string,
+	reason string,
+	version int64,
+) (AdminMFAResetResult, error) {
+	actor, err := principal.Require(ctx)
+	if err != nil {
+		return AdminMFAResetResult{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	userID = strings.TrimSpace(userID)
+	reason = strings.TrimSpace(reason)
+	if userID == "" || reason == "" || version < 1 {
+		return AdminMFAResetResult{}, apperror.Invalid("user_id, reason, and version are required", nil)
+	}
+	if actor.Type == principal.TypeUser && actor.ID == userID {
+		return AdminMFAResetResult{}, apperror.Invalid("use self-service mfa disable for the current user", nil)
+	}
+	enrollment, err := s.repository.GetMFA(ctx, userID)
+	if err != nil {
+		return AdminMFAResetResult{}, translateIdentityError(err)
+	}
+	if enrollment.Status != MFAStatusEnabled {
+		return AdminMFAResetResult{}, apperror.Invalid("mfa is not enabled", nil)
+	}
+	now := s.now().UTC()
+	event, err := newOutboxEvent(
+		ctx,
+		"platform.identity.mfa.status-changed.v1",
+		"platform.identity.v1.MFAStatusChanged",
+		userID,
+		now,
+		&identityv1.MFAStatusChangedEvent{UserId: userID, Enabled: false},
+	)
+	if err != nil {
+		return AdminMFAResetResult{}, apperror.Internal(err)
+	}
+	var revokedSessions uint64
+	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+		if err := s.repository.AdminResetMFA(ctx, tx, userID, actor.ID, version, now); err != nil {
+			return err
+		}
+		if err := s.repository.DeleteRecoveryCodes(ctx, tx, userID); err != nil {
+			return err
+		}
+		revokedSessions, err = s.repository.RevokeUserSessions(
+			ctx,
+			tx,
+			userID,
+			"mfa administratively reset: "+reason,
+			actor.ID,
+			now,
+		)
+		if err != nil {
+			return err
+		}
+		return s.repository.InsertOutbox(ctx, tx, event)
+	})
+	if err != nil {
+		return AdminMFAResetResult{}, translateIdentityError(err)
+	}
+	return AdminMFAResetResult{
+		UserID:          userID,
+		Reset:           true,
+		RevokedSessions: revokedSessions,
+		Version:         version + 1,
+	}, nil
 }
 
 func (s *Service) verifyCurrentPassword(ctx context.Context, userID, password string) error {

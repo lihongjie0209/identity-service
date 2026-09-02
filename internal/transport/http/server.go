@@ -78,6 +78,8 @@ func NewServer(lc fx.Lifecycle, cfg config.Config, handler *Handler, authService
 	api.POST("/identities/register", handler.RegisterIdentity)
 	api.POST("/identities/list", handler.ListIdentities)
 	api.POST("/identities/update-status", handler.UpdateIdentityStatus)
+	api.POST("/identities/mfa/status", handler.AdminMFAStatus)
+	api.POST("/identities/mfa/reset", handler.AdminResetMFA)
 	api.POST("/service-accounts/create", handler.CreateServiceAccount)
 	api.POST("/service-accounts/list", handler.ListServiceAccounts)
 	api.POST("/service-accounts/update-status", handler.UpdateServiceAccountStatus)
