@@ -77,8 +77,8 @@ func TestRepositoryAndMigrations(t *testing.T) {
 			if err != nil {
 				t.Fatalf("login: %v", err)
 			}
-			rotated, err := service.Refresh(ctx, tokens.RefreshToken)
-			if err != nil || rotated.RefreshToken == tokens.RefreshToken {
+			rotated, err := service.Refresh(ctx, tokens.Tokens.RefreshToken)
+			if err != nil || rotated.RefreshToken == tokens.Tokens.RefreshToken {
 				t.Fatalf("refresh=%+v err=%v", rotated, err)
 			}
 			sessionPage, err := service.ListSessions(ctx, created.ID, "", "active", 1, 20)

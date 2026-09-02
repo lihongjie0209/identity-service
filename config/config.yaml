@@ -93,7 +93,7 @@ auth:
   client_id: ""
   client_secret: ""
   # Supports path.Match wildcards; '*' never crosses '/'.
-  skip_http_paths: [/api/v1/auth/login, /api/v1/auth/refresh, /api/v1/auth/service-token, /api/v1/version]
+  skip_http_paths: [/api/v1/auth/login, /api/v1/auth/mfa/verify, /api/v1/auth/refresh, /api/v1/auth/service-token, /api/v1/version]
   skip_grpc_methods:
     - /grpc.health.v1.Health/*
   psk:

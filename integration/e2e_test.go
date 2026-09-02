@@ -5,6 +5,11 @@ package integration
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha1" //nolint:gosec // Test interoperability with RFC 6238 HMAC-SHA1.
+	"encoding/base32"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -60,6 +65,8 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	httpAddress := freeAddress(t)
 	grpcAddress := freeAddress(t)
 	const secret = "01234567890123456789012345678901"
+	mfaEncryptionKey := base64.StdEncoding.EncodeToString([]byte("01234567890123456789012345678901"))
+	mfaRecoveryPepper := base64.StdEncoding.EncodeToString([]byte("abcdefghijklmnopqrstuvwxyzABCDEF"))
 	cfg := config.Config{
 		Runtime:       config.Runtime{ActiveProfile: "integration"},
 		App:           config.App{Name: "integration", Env: "integration", ShutdownTimeout: 10 * time.Second},
@@ -72,7 +79,8 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		Health:        config.Health{DatabaseTimeout: 2 * time.Second, RedisTimeout: 2 * time.Second},
 		Observability: config.Observability{MetricsEnabled: true},
 		JWT:           config.JWT{Issuer: "integration", Secret: secret, TTL: time.Hour},
-		Auth:          config.Auth{SkipHTTPPaths: []string{"/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/version"}, SkipGRPCMethods: []string{"/grpc.health.v1.Health/*"}, PSK: config.PSK{Enabled: true, Key: secret, HTTPPaths: []string{"/api/v1/identities/register"}, GRPCMethods: []string{"/platform.identity.v1.IdentityService/GetServiceAccount"}}},
+		MFA:           config.MFA{Enabled: true, Issuer: "Platform Integration", EncryptionKey: mfaEncryptionKey, RecoveryPepper: mfaRecoveryPepper, ChallengeTTL: 5 * time.Minute},
+		Auth:          config.Auth{SkipHTTPPaths: []string{"/api/v1/auth/login", "/api/v1/auth/mfa/verify", "/api/v1/auth/refresh", "/api/v1/version"}, SkipGRPCMethods: []string{"/grpc.health.v1.Health/*"}, PSK: config.PSK{Enabled: true, Key: secret, HTTPPaths: []string{"/api/v1/identities/register"}, GRPCMethods: []string{"/platform.identity.v1.IdentityService/GetServiceAccount"}}},
 		Cron:          config.Cron{Enabled: false, Timezone: "UTC"},
 		User:          config.User{CacheTTL: time.Minute, LockTTL: 10 * time.Second, LockRetryDelay: 20 * time.Millisecond},
 		Idempotency:   config.Idempotency{Enabled: true, ProcessingTTL: 30 * time.Second, ResultTTL: time.Hour, FailureTTL: time.Minute},
@@ -251,6 +259,7 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+logoutToken, "", `{}`); status != http.StatusUnauthorized {
 		t.Fatalf("logged out session status = %d, want %d", status, http.StatusUnauthorized)
 	}
+	testMFAHTTPFlow(t, baseURL, secret)
 	lifecycleLoginBody, status := postJSONBody(t, baseURL+"/api/v1/auth/login", "", "", `{"login":"alice","password":"different horse battery staple"}`)
 	if status != http.StatusOK {
 		t.Fatalf("lifecycle login status=%d body=%s", status, lifecycleLoginBody)
@@ -283,6 +292,87 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	}
 	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+newPasswordToken, "", `{}`); status != http.StatusUnauthorized {
 		t.Fatalf("disabled user session status = %d, want %d", status, http.StatusUnauthorized)
+	}
+}
+
+func testMFAHTTPFlow(t *testing.T, baseURL, psk string) {
+	t.Helper()
+	registerBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/identities/register",
+		"PSK "+psk,
+		"",
+		`{"username":"bob","display_name":"Bob","email":"bob@example.com","password":"correct horse battery staple"}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("register mfa user status=%d body=%s", status, registerBody)
+	}
+	loginBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/login",
+		"",
+		"",
+		`{"login":"bob","password":"correct horse battery staple"}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("initial mfa user login status=%d body=%s", status, loginBody)
+	}
+	token, _, _ := responseTokens(t, loginBody)
+	setupBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/mfa/setup/start",
+		"Bearer "+token,
+		"",
+		`{"current_password":"correct horse battery staple"}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("start mfa setup status=%d body=%s", status, setupBody)
+	}
+	secret, version := responseMFASetup(t, setupBody)
+	confirmBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/mfa/setup/confirm",
+		"Bearer "+token,
+		"",
+		fmt.Sprintf(`{"code":%q,"version":%d}`, totpCode(t, secret, time.Now()), version),
+	)
+	if status != http.StatusOK {
+		t.Fatalf("confirm mfa setup status=%d body=%s", status, confirmBody)
+	}
+	recoveryCode := responseFirstRecoveryCode(t, confirmBody)
+	challengeBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/login",
+		"",
+		"",
+		`{"login":"bob","password":"correct horse battery staple"}`,
+	)
+	if status != http.StatusOK {
+		t.Fatalf("mfa password login status=%d body=%s", status, challengeBody)
+	}
+	challenge := responseMFAChallenge(t, challengeBody)
+	verifyBody, status := postJSONBody(
+		t,
+		baseURL+"/api/v1/auth/mfa/verify",
+		"",
+		"",
+		fmt.Sprintf(`{"challenge_token":%q,"recovery_code":%q}`, challenge, recoveryCode),
+	)
+	if status != http.StatusOK {
+		t.Fatalf("verify mfa recovery code status=%d body=%s", status, verifyBody)
+	}
+	mfaToken, _, _ := responseTokens(t, verifyBody)
+	if status := postJSON(t, baseURL+"/api/v1/me", "Bearer "+mfaToken, "", `{}`); status != http.StatusOK {
+		t.Fatalf("mfa session status=%d", status)
+	}
+	if status := postJSON(
+		t,
+		baseURL+"/api/v1/auth/mfa/verify",
+		"",
+		"",
+		fmt.Sprintf(`{"challenge_token":%q,"recovery_code":%q}`, challenge, recoveryCode),
+	); status != http.StatusUnauthorized {
+		t.Fatalf("replayed mfa challenge status=%d, want %d", status, http.StatusUnauthorized)
 	}
 }
 
@@ -356,6 +446,72 @@ func responseSessionVersion(t *testing.T, data []byte, sessionID string) int64 {
 	}
 	t.Fatalf("missing session version for %q: %s", sessionID, data)
 	return 0
+}
+
+func responseMFASetup(t *testing.T, data []byte) (string, int64) {
+	t.Helper()
+	var response struct {
+		Body struct {
+			Secret  string `json:"secret"`
+			Version int64  `json:"version"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Body.Secret == "" || response.Body.Version < 1 {
+		t.Fatalf("missing mfa setup: %s", data)
+	}
+	return response.Body.Secret, response.Body.Version
+}
+
+func responseFirstRecoveryCode(t *testing.T, data []byte) string {
+	t.Helper()
+	var response struct {
+		Body struct {
+			RecoveryCodes []string `json:"recovery_codes"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Body.RecoveryCodes) != 10 {
+		t.Fatalf("missing recovery codes: %s", data)
+	}
+	return response.Body.RecoveryCodes[0]
+}
+
+func responseMFAChallenge(t *testing.T, data []byte) string {
+	t.Helper()
+	var response struct {
+		Body struct {
+			Required  bool   `json:"mfa_required"`
+			Challenge string `json:"mfa_challenge_token"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.Body.Required || response.Body.Challenge == "" {
+		t.Fatalf("missing mfa challenge: %s", data)
+	}
+	return response.Body.Challenge
+}
+
+func totpCode(t *testing.T, secret string, now time.Time) string {
+	t.Helper()
+	decoded, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var message [8]byte
+	binary.BigEndian.PutUint64(message[:], uint64(now.Unix()/30))
+	mac := hmac.New(sha1.New, decoded)
+	_, _ = mac.Write(message[:])
+	sum := mac.Sum(nil)
+	offset := sum[len(sum)-1] & 0x0f
+	value := binary.BigEndian.Uint32(sum[offset:offset+4]) & 0x7fffffff
+	return fmt.Sprintf("%06d", value%1_000_000)
 }
 
 func responseIdentityVersion(t *testing.T, data []byte, userID string) int64 {

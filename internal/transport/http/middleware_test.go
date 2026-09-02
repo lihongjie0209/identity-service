@@ -31,7 +31,7 @@ func TestIdentityHTTPRequirementCoversAdministrationOnly(t *testing.T) {
 			t.Fatalf("route %q requirement = %+v, %v", route, requirement, ok)
 		}
 	}
-	for _, route := range []string{"/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout", "/api/v1/auth/change-password", "/api/v1/auth/sessions/list", "/api/v1/auth/sessions/revoke", "/api/v1/auth/service-token", "/api/v1/me", "/api/v1/version"} {
+	for _, route := range []string{"/api/v1/auth/login", "/api/v1/auth/mfa/verify", "/api/v1/auth/refresh", "/api/v1/auth/logout", "/api/v1/auth/change-password", "/api/v1/auth/mfa/status", "/api/v1/auth/mfa/setup/start", "/api/v1/auth/mfa/setup/confirm", "/api/v1/auth/mfa/disable", "/api/v1/auth/sessions/list", "/api/v1/auth/sessions/revoke", "/api/v1/auth/service-token", "/api/v1/me", "/api/v1/version"} {
 		if _, ok := identityHTTPRequirement(route); ok {
 			t.Fatalf("authentication lifecycle route %q must not depend on authorization-service", route)
 		}

@@ -43,6 +43,41 @@ type ChangePasswordResponseBody struct {
 	Changed         bool   `json:"changed"`
 	RevokedSessions uint64 `json:"revoked_sessions"`
 }
+type MFAStatusResponseBody struct {
+	Available              bool       `json:"available"`
+	Enabled                bool       `json:"enabled"`
+	Status                 string     `json:"status"`
+	RecoveryCodesRemaining int64      `json:"recovery_codes_remaining"`
+	Version                int64      `json:"version"`
+	EnabledAt              *time.Time `json:"enabled_at,omitempty"`
+}
+type StartMFASetupRequest struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+}
+type MFASetupResponseBody struct {
+	Secret    string    `json:"secret"`
+	URI       string    `json:"uri"`
+	Version   int64     `json:"version"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+type ConfirmMFASetupRequest struct {
+	Code    string `json:"code" binding:"required"`
+	Version int64  `json:"version" binding:"required"`
+}
+type ConfirmMFASetupResponseBody struct {
+	RecoveryCodes   []string `json:"recovery_codes"`
+	RevokedSessions uint64   `json:"revoked_sessions"`
+	Version         int64    `json:"version"`
+}
+type DisableMFARequest struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+	Code            string `json:"code" binding:"required"`
+	Version         int64  `json:"version" binding:"required"`
+}
+type DisableMFAResponseBody struct {
+	Disabled        bool   `json:"disabled"`
+	RevokedSessions uint64 `json:"revoked_sessions"`
+}
 type ListSessionsRequest struct {
 	UserID   string `json:"user_id"`
 	TenantID string `json:"tenant_id"`
@@ -159,8 +194,19 @@ type ListIdentitiesRequest struct {
 	PageSize int    `json:"page_size"`
 }
 type LoginResponseBody struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
+	AccessToken        string     `json:"access_token,omitempty"`
+	RefreshToken       string     `json:"refresh_token,omitempty"`
+	TokenType          string     `json:"token_type,omitempty"`
+	ExpiresAt          *time.Time `json:"expires_at,omitempty"`
+	SessionID          string     `json:"session_id,omitempty"`
+	MFARequired        bool       `json:"mfa_required"`
+	MFAChallengeToken  string     `json:"mfa_challenge_token,omitempty"`
+	MFAChallengeExpiry *time.Time `json:"mfa_challenge_expires_at,omitempty"`
+}
+type VerifyMFAChallengeRequest struct {
+	ChallengeToken string `json:"challenge_token" binding:"required"`
+	Code           string `json:"code"`
+	RecoveryCode   string `json:"recovery_code"`
 }
 type MeResponseBody struct {
 	Subject      string   `json:"subject"`
@@ -183,7 +229,7 @@ type MeResponseBody struct {
 // @Accept json
 // @Produce json
 // @Param request body LoginRequest true "Username/email and password"
-// @Success 200 {object} Response{body=identity.Tokens}
+// @Success 200 {object} Response{body=LoginResponseBody}
 // @Failure 400 {object} Response "Code 10001: invalid request"
 // @Failure 401 {object} Response "Code 20001: invalid credentials"
 // @Failure 429 {object} Response "Code 10029: rate limited"
@@ -194,7 +240,7 @@ func (h *Handler) Login(c *gin.Context) {
 		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
 		return
 	}
-	tokens, err := h.identities.Login(
+	result, err := h.identities.Login(
 		c.Request.Context(),
 		req.Login,
 		req.Password,
@@ -204,7 +250,55 @@ func (h *Handler) Login(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, tokens)
+	response := LoginResponseBody{
+		MFARequired:        result.MFARequired,
+		MFAChallengeToken:  result.MFAChallengeToken,
+		MFAChallengeExpiry: result.MFAChallengeExpiry,
+	}
+	if !result.MFARequired {
+		response.AccessToken = result.Tokens.AccessToken
+		response.RefreshToken = result.Tokens.RefreshToken
+		response.TokenType = result.Tokens.TokenType
+		response.ExpiresAt = &result.Tokens.ExpiresAt
+		response.SessionID = result.Tokens.SessionID
+	}
+	OK(c, response)
+}
+
+// VerifyMFAChallenge godoc
+// @Summary Complete an MFA login challenge with TOTP or a recovery code
+// @Tags authentication
+// @Accept json
+// @Produce json
+// @Param request body VerifyMFAChallengeRequest true "Challenge and exactly one verification code"
+// @Success 200 {object} Response{body=LoginResponseBody}
+// @Failure 401 {object} Response "Code 20001: invalid or expired challenge"
+// @Failure 429 {object} Response "Code 10029: rate limited"
+// @Router /api/v1/auth/mfa/verify [post]
+func (h *Handler) VerifyMFAChallenge(c *gin.Context) {
+	var req VerifyMFAChallengeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	tokens, err := h.identities.VerifyMFAChallenge(
+		c.Request.Context(),
+		req.ChallengeToken,
+		req.Code,
+		req.RecoveryCode,
+	)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, LoginResponseBody{
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+		TokenType:    tokens.TokenType,
+		ExpiresAt:    &tokens.ExpiresAt,
+		SessionID:    tokens.SessionID,
+		MFARequired:  false,
+	})
 }
 
 // Refresh godoc
@@ -278,6 +372,115 @@ func (h *Handler) ChangePassword(c *gin.Context) {
 		return
 	}
 	OK(c, ChangePasswordResponseBody{Changed: true, RevokedSessions: revokedSessions})
+}
+
+// MFAStatus godoc
+// @Summary Get MFA status for the authenticated user
+// @Tags authentication
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Success 200 {object} Response{body=MFAStatusResponseBody}
+// @Router /api/v1/auth/mfa/status [post]
+func (h *Handler) MFAStatus(c *gin.Context) {
+	status, err := h.identities.MFAStatus(c.Request.Context())
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, MFAStatusResponseBody{
+		Available:              status.Available,
+		Enabled:                status.Enabled,
+		Status:                 status.Status,
+		RecoveryCodesRemaining: status.RecoveryCodesRemaining,
+		Version:                status.Version,
+		EnabledAt:              status.EnabledAt,
+	})
+}
+
+// StartMFASetup godoc
+// @Summary Start TOTP MFA setup after password verification
+// @Tags authentication
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body StartMFASetupRequest true "Current password"
+// @Success 200 {object} Response{body=MFASetupResponseBody}
+// @Router /api/v1/auth/mfa/setup/start [post]
+func (h *Handler) StartMFASetup(c *gin.Context) {
+	var req StartMFASetupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	setup, err := h.identities.StartMFASetup(c.Request.Context(), req.CurrentPassword)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, MFASetupResponseBody{
+		Secret:    setup.Secret,
+		URI:       setup.URI,
+		Version:   setup.Version,
+		ExpiresAt: setup.ExpiresAt,
+	})
+}
+
+// ConfirmMFASetup godoc
+// @Summary Confirm TOTP MFA setup and issue recovery codes once
+// @Tags authentication
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body ConfirmMFASetupRequest true "TOTP code and expected version"
+// @Success 200 {object} Response{body=ConfirmMFASetupResponseBody}
+// @Failure 409 {object} Response "Code 30009: stale resource version"
+// @Router /api/v1/auth/mfa/setup/confirm [post]
+func (h *Handler) ConfirmMFASetup(c *gin.Context) {
+	var req ConfirmMFASetupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	confirmation, err := h.identities.ConfirmMFASetup(c.Request.Context(), req.Code, req.Version)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, ConfirmMFASetupResponseBody{
+		RecoveryCodes:   confirmation.RecoveryCodes,
+		RevokedSessions: confirmation.RevokedSessions,
+		Version:         confirmation.Version,
+	})
+}
+
+// DisableMFA godoc
+// @Summary Disable TOTP MFA after password and TOTP verification
+// @Tags authentication
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body DisableMFARequest true "Current password, TOTP code, and expected version"
+// @Success 200 {object} Response{body=DisableMFAResponseBody}
+// @Failure 409 {object} Response "Code 30009: stale resource version"
+// @Router /api/v1/auth/mfa/disable [post]
+func (h *Handler) DisableMFA(c *gin.Context) {
+	var req DisableMFARequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	revokedSessions, err := h.identities.DisableMFA(
+		c.Request.Context(),
+		req.CurrentPassword,
+		req.Code,
+		req.Version,
+	)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, DisableMFAResponseBody{Disabled: true, RevokedSessions: revokedSessions})
 }
 
 // ListSessions godoc

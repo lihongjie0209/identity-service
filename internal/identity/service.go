@@ -32,11 +32,13 @@ const loginFailureThreshold = 5
 const loginLockDuration = 15 * time.Minute
 
 type Service struct {
-	repository *Repository
-	transactor *database.Transactor
-	hasher     *PasswordHasher
-	issuer     *TokenIssuer
-	now        func() time.Time
+	repository      *Repository
+	transactor      *database.Transactor
+	hasher          *PasswordHasher
+	issuer          *TokenIssuer
+	mfa             *MFACrypto
+	mfaChallengeTTL time.Duration
+	now             func() time.Time
 }
 
 func NewService(repository *Repository, transactor *database.Transactor, cfg config.Config) (*Service, error) {
@@ -64,7 +66,22 @@ func NewService(repository *Repository, transactor *database.Transactor, cfg con
 			return nil, err
 		}
 	}
-	return &Service{repository: repository, transactor: transactor, hasher: hasher, issuer: issuer, now: time.Now}, nil
+	var mfa *MFACrypto
+	if cfg.MFA.Enabled {
+		mfa, err = NewMFACrypto(cfg.MFA.Issuer, cfg.MFA.EncryptionKey, cfg.MFA.RecoveryPepper)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &Service{
+		repository:      repository,
+		transactor:      transactor,
+		hasher:          hasher,
+		issuer:          issuer,
+		mfa:             mfa,
+		mfaChallengeTTL: cfg.MFA.ChallengeTTL,
+		now:             time.Now,
+	}, nil
 }
 
 func (s *Service) Register(ctx context.Context, username, displayName, email, phone, password string) (User, error) {
@@ -101,28 +118,42 @@ func (s *Service) Register(ctx context.Context, username, displayName, email, ph
 	return user, nil
 }
 
-func (s *Service) Login(ctx context.Context, login, password string, client SessionClient) (Tokens, error) {
+func (s *Service) Login(ctx context.Context, login, password string, client SessionClient) (LoginResult, error) {
 	login = strings.TrimSpace(login)
 	if login == "" || password == "" {
-		return Tokens{}, apperror.Invalid("login and password are required", nil)
+		return LoginResult{}, apperror.Invalid("login and password are required", nil)
 	}
 	user, credential, err := s.repository.UserByLogin(ctx, login)
 	if err != nil {
-		return Tokens{}, apperror.Unauthorized("invalid credentials")
+		return LoginResult{}, apperror.Unauthorized("invalid credentials")
 	}
 	now := s.now().UTC()
 	if user.Status != StatusActive || (user.LockedUntil != nil && user.LockedUntil.After(now)) || credential.Status != StatusActive {
-		return Tokens{}, apperror.Unauthorized("account is unavailable")
+		return LoginResult{}, apperror.Unauthorized("account is unavailable")
 	}
 	valid, _, err := s.hasher.Verify(password, credential.SecretHash)
 	if err != nil || !valid {
 		_ = s.repository.RecordFailedLogin(ctx, user.ID, loginFailureThreshold, now.Add(loginLockDuration), now)
-		return Tokens{}, apperror.Unauthorized("invalid credentials")
+		return LoginResult{}, apperror.Unauthorized("invalid credentials")
 	}
 	if err := s.repository.ResetFailedLogin(ctx, user.ID, now); err != nil {
-		return Tokens{}, apperror.Internal(err)
+		return LoginResult{}, apperror.Internal(err)
 	}
-	return s.createSession(principal.SystemContext(ctx, "identity:login"), user.ID, "", "", client)
+	enrollment, err := s.repository.GetMFA(ctx, user.ID)
+	if err == nil && enrollment.Status == MFAStatusEnabled {
+		if s.mfa == nil {
+			return LoginResult{}, apperror.Unavailable("mfa verification is unavailable", nil)
+		}
+		return s.issueMFAChallenge(ctx, user.ID, client)
+	}
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return LoginResult{}, translateIdentityError(err)
+	}
+	tokens, err := s.createSession(principal.SystemContext(ctx, "identity:login"), user.ID, "", "", client)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	return LoginResult{Tokens: tokens}, nil
 }
 
 func (s *Service) createSession(
@@ -132,14 +163,33 @@ func (s *Service) createSession(
 	membershipID string,
 	client SessionClient,
 ) (Tokens, error) {
+	session, tokens, err := s.prepareSession(ctx, userID, tenantID, membershipID, client)
+	if err != nil {
+		return Tokens{}, err
+	}
+	if err := s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+		return s.repository.CreateSession(ctx, tx, session)
+	}); err != nil {
+		return Tokens{}, translateIdentityError(err)
+	}
+	return tokens, nil
+}
+
+func (s *Service) prepareSession(
+	ctx context.Context,
+	userID string,
+	tenantID string,
+	membershipID string,
+	client SessionClient,
+) (Session, Tokens, error) {
 	now := s.now().UTC()
 	rawRefresh, refreshHash, err := newRefreshToken()
 	if err != nil {
-		return Tokens{}, apperror.Internal(err)
+		return Session{}, Tokens{}, apperror.Internal(err)
 	}
 	fields, err := audit.New(ctx, now)
 	if err != nil {
-		return Tokens{}, apperror.Unauthorized("authenticated actor is required")
+		return Session{}, Tokens{}, apperror.Unauthorized("authenticated actor is required")
 	}
 	session := Session{
 		ID:               uuid.NewString(),
@@ -155,12 +205,15 @@ func (s *Service) createSession(
 	}
 	access, expiresAt, err := s.issuer.Issue(userID, "user", session.ID, tenantID, membershipID)
 	if err != nil {
-		return Tokens{}, apperror.Internal(err)
+		return Session{}, Tokens{}, apperror.Internal(err)
 	}
-	if err := s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error { return s.repository.CreateSession(ctx, tx, session) }); err != nil {
-		return Tokens{}, translateIdentityError(err)
-	}
-	return Tokens{AccessToken: access, RefreshToken: rawRefresh, TokenType: "Bearer", ExpiresAt: expiresAt, SessionID: session.ID}, nil
+	return session, Tokens{
+		AccessToken:  access,
+		RefreshToken: rawRefresh,
+		TokenType:    "Bearer",
+		ExpiresAt:    expiresAt,
+		SessionID:    session.ID,
+	}, nil
 }
 
 func truncateUTF8(value string, maxBytes int) string {

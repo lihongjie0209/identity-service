@@ -46,6 +46,27 @@ definitions:
       revoked_sessions:
         type: integer
     type: object
+  httptransport.ConfirmMFASetupRequest:
+    properties:
+      code:
+        type: string
+      version:
+        type: integer
+    required:
+    - code
+    - version
+    type: object
+  httptransport.ConfirmMFASetupResponseBody:
+    properties:
+      recovery_codes:
+        items:
+          type: string
+        type: array
+      revoked_sessions:
+        type: integer
+      version:
+        type: integer
+    type: object
   httptransport.CreateServiceAccountRequest:
     properties:
       audiences:
@@ -64,6 +85,26 @@ definitions:
         $ref: '#/definitions/httptransport.ServiceAccountResponseBody'
       client_secret:
         type: string
+    type: object
+  httptransport.DisableMFARequest:
+    properties:
+      code:
+        type: string
+      current_password:
+        type: string
+      version:
+        type: integer
+    required:
+    - code
+    - current_password
+    - version
+    type: object
+  httptransport.DisableMFAResponseBody:
+    properties:
+      disabled:
+        type: boolean
+      revoked_sessions:
+        type: integer
     type: object
   httptransport.IdentityResponseBody:
     properties:
@@ -136,6 +177,25 @@ definitions:
     - login
     - password
     type: object
+  httptransport.LoginResponseBody:
+    properties:
+      access_token:
+        type: string
+      expires_at:
+        type: string
+      mfa_challenge_expires_at:
+        type: string
+      mfa_challenge_token:
+        type: string
+      mfa_required:
+        type: boolean
+      refresh_token:
+        type: string
+      session_id:
+        type: string
+      token_type:
+        type: string
+    type: object
   httptransport.LogoutRequest:
     properties:
       reason:
@@ -144,6 +204,32 @@ definitions:
         type: string
     required:
     - session_id
+    type: object
+  httptransport.MFASetupResponseBody:
+    properties:
+      expires_at:
+        type: string
+      secret:
+        type: string
+      uri:
+        type: string
+      version:
+        type: integer
+    type: object
+  httptransport.MFAStatusResponseBody:
+    properties:
+      available:
+        type: boolean
+      enabled:
+        type: boolean
+      enabled_at:
+        type: string
+      recovery_codes_remaining:
+        type: integer
+      status:
+        type: string
+      version:
+        type: integer
     type: object
   httptransport.MeResponseBody:
     properties:
@@ -332,6 +418,13 @@ definitions:
       version:
         type: integer
     type: object
+  httptransport.StartMFASetupRequest:
+    properties:
+      current_password:
+        type: string
+    required:
+    - current_password
+    type: object
   httptransport.UpdateIdentityStatusRequest:
     properties:
       id:
@@ -359,6 +452,17 @@ definitions:
     - id
     - status
     - version
+    type: object
+  httptransport.VerifyMFAChallengeRequest:
+    properties:
+      challenge_token:
+        type: string
+      code:
+        type: string
+      recovery_code:
+        type: string
+    required:
+    - challenge_token
     type: object
   identity.JWK:
     properties:
@@ -472,7 +576,7 @@ paths:
             - $ref: '#/definitions/httptransport.Response'
             - properties:
                 body:
-                  $ref: '#/definitions/identity.Tokens'
+                  $ref: '#/definitions/httptransport.LoginResponseBody'
               type: object
         "400":
           description: 'Code 10001: invalid request'
@@ -510,6 +614,153 @@ paths:
       security:
       - Bearer: []
       summary: Revoke the current session
+      tags:
+      - authentication
+  /api/v1/auth/mfa/disable:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Current password, TOTP code, and expected version
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.DisableMFARequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.DisableMFAResponseBody'
+              type: object
+        "409":
+          description: 'Code 30009: stale resource version'
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      security:
+      - Bearer: []
+      summary: Disable TOTP MFA after password and TOTP verification
+      tags:
+      - authentication
+  /api/v1/auth/mfa/setup/confirm:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: TOTP code and expected version
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.ConfirmMFASetupRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.ConfirmMFASetupResponseBody'
+              type: object
+        "409":
+          description: 'Code 30009: stale resource version'
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      security:
+      - Bearer: []
+      summary: Confirm TOTP MFA setup and issue recovery codes once
+      tags:
+      - authentication
+  /api/v1/auth/mfa/setup/start:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Current password
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.StartMFASetupRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.MFASetupResponseBody'
+              type: object
+      security:
+      - Bearer: []
+      summary: Start TOTP MFA setup after password verification
+      tags:
+      - authentication
+  /api/v1/auth/mfa/status:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.MFAStatusResponseBody'
+              type: object
+      security:
+      - Bearer: []
+      summary: Get MFA status for the authenticated user
+      tags:
+      - authentication
+  /api/v1/auth/mfa/verify:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Challenge and exactly one verification code
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.VerifyMFAChallengeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.LoginResponseBody'
+              type: object
+        "401":
+          description: 'Code 20001: invalid or expired challenge'
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+        "429":
+          description: 'Code 10029: rate limited'
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      summary: Complete an MFA login challenge with TOTP or a recovery code
       tags:
       - authentication
   /api/v1/auth/refresh:
