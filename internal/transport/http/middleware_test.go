@@ -7,15 +7,91 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lihongjie0209/identity-service/internal/auth"
 	"github.com/lihongjie0209/identity-service/internal/config"
+	"github.com/lihongjie0209/identity-service/internal/idempotency"
 	platformauthz "github.com/lihongjie0209/microservice-platform-go/authz"
 	"github.com/lihongjie0209/microservice-platform-go/principal"
 )
+
+type fakeIdempotencyManager struct {
+	decision  idempotency.Decision
+	beginKey  string
+	completed *Response
+}
+
+func (*fakeIdempotencyManager) Enabled() bool { return true }
+func (m *fakeIdempotencyManager) Begin(_ context.Context, key, _ string) (idempotency.Decision, error) {
+	m.beginKey = key
+	return m.decision, nil
+}
+func (m *fakeIdempotencyManager) Complete(_ context.Context, _, _ string, response any) error {
+	value, ok := response.(Response)
+	if ok {
+		m.completed = &value
+	}
+	return nil
+}
+func (*fakeIdempotencyManager) Fail(context.Context, string, string, idempotency.Failure) error {
+	return nil
+}
+
+func TestIdempotencyExecutionCompletesAndReplaysAdministrativeMutation(t *testing.T) {
+	t.Parallel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	manager := &fakeIdempotencyManager{decision: idempotency.Decision{State: idempotency.StateAcquired, Owner: "owner-1"}}
+	calls := 0
+	router := gin.New()
+	router.Use(RequestID(), func(c *gin.Context) {
+		c.Set("subject", "administrator-1")
+		c.Request = c.Request.WithContext(idempotency.WithContext(c.Request.Context(), "operation-1"))
+		c.Next()
+	}, IdempotencyExecution(manager, []string{"/api/v1/sessions/revoke"}, logger))
+	router.POST("/api/v1/sessions/revoke", func(c *gin.Context) { calls++; OK(c, nil) })
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/sessions/revoke", strings.NewReader(`{"session_id":"session-1"}`)))
+	if calls != 1 || manager.beginKey != "operation-1" || manager.completed == nil || manager.completed.RequestID != "" {
+		t.Fatalf("calls=%d key=%q completed=%+v", calls, manager.beginKey, manager.completed)
+	}
+	stored, err := json.Marshal(*manager.completed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.decision = idempotency.Decision{State: idempotency.StateCompleted, Response: stored}
+	replay := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/revoke", strings.NewReader(`{"session_id":"session-1"}`))
+	replay.Header.Set("X-Request-ID", "current-request")
+	replayRecorder := httptest.NewRecorder()
+	router.ServeHTTP(replayRecorder, replay)
+	var response Response
+	if err := json.Unmarshal(replayRecorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || response.RequestID != "current-request" {
+		t.Fatalf("calls=%d response=%+v", calls, response)
+	}
+}
+
+func TestIdempotencyExecutionDoesNotCacheSensitiveTokenRoute(t *testing.T) {
+	t.Parallel()
+	manager := &fakeIdempotencyManager{decision: idempotency.Decision{State: idempotency.StateConflict}}
+	calls := 0
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(idempotency.WithContext(c.Request.Context(), "operation-1"))
+		c.Next()
+	}, IdempotencyExecution(manager, []string{"/api/v1/sessions/revoke"}, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	router.POST("/api/v1/auth/refresh", func(c *gin.Context) { calls++; OK(c, gin.H{"access_token": "secret"}) })
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil))
+	if calls != 1 || manager.beginKey != "" || recorder.Code != http.StatusOK {
+		t.Fatalf("calls=%d key=%q status=%d", calls, manager.beginKey, recorder.Code)
+	}
+}
 
 type authorizationStub struct{ err error }
 

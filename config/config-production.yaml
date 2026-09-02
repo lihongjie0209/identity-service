@@ -32,6 +32,15 @@ rate_limit:
   enabled: true
 idempotency:
   enabled: true
+  http_paths:
+    - /api/v1/auth/logout
+    - /api/v1/auth/sessions/revoke
+    - /api/v1/sessions/revoke
+    - /api/v1/identities/update-status
+    - /api/v1/identities/mfa/reset
+    - /api/v1/service-accounts/update-status
+  grpc_methods:
+    - /platform.identity.v1.IdentityService/RevokeTenantSessions
 observability:
   metrics_enabled: true
   tracing_enabled: false
