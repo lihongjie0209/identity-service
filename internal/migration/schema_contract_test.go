@@ -46,3 +46,25 @@ func TestIdentityDomainMigration_BackwardCompatibleAndAudited(t *testing.T) {
 		})
 	}
 }
+
+func TestMySQLSessionClientMigrationBackfillsBeforeNotNull(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join("..", "..", "migrations", "mysql", "000004_session_client.up.sql")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(content)
+	if strings.Contains(sql, "TEXT NOT NULL DEFAULT") {
+		t.Fatal("mysql text columns cannot use defaults on every supported server mode")
+	}
+	for _, want := range []string{
+		"ADD COLUMN client_ip TEXT NULL",
+		"UPDATE sessions SET client_ip = '', user_agent = ''",
+		"MODIFY COLUMN client_ip TEXT NOT NULL",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("migration missing %q", want)
+		}
+	}
+}
