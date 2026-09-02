@@ -98,6 +98,23 @@ definitions:
       version:
         type: integer
     type: object
+  httptransport.ConfirmPasswordResetRequest:
+    properties:
+      new_password:
+        type: string
+      reset_token:
+        type: string
+    required:
+    - new_password
+    - reset_token
+    type: object
+  httptransport.ConfirmPasswordResetResponseBody:
+    properties:
+      changed:
+        type: boolean
+      revoked_sessions:
+        type: integer
+    type: object
   httptransport.CreateServiceAccountRequest:
     properties:
       audiences:
@@ -153,6 +170,23 @@ definitions:
         type: string
       version:
         type: integer
+    type: object
+  httptransport.IssuePasswordResetRequest:
+    properties:
+      reason:
+        type: string
+      user_id:
+        type: string
+    required:
+    - reason
+    - user_id
+    type: object
+  httptransport.IssuePasswordResetResponseBody:
+    properties:
+      expires_at:
+        type: string
+      reset_token:
+        type: string
     type: object
   httptransport.ListIdentitiesRequest:
     properties:
@@ -848,6 +882,36 @@ paths:
       summary: Complete an MFA login challenge with TOTP or a recovery code
       tags:
       - authentication
+  /api/v1/auth/password-reset/confirm:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: One-time token and new password
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.ConfirmPasswordResetRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.ConfirmPasswordResetResponseBody'
+              type: object
+        "401":
+          description: 'Code 20001: invalid, expired, or consumed token'
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      summary: Consume a one-time recovery token and replace the password
+      tags:
+      - authentication
   /api/v1/auth/refresh:
     post:
       consumes:
@@ -1036,6 +1100,34 @@ paths:
       security:
       - Bearer: []
       summary: Get a user's MFA status for platform administration
+      tags:
+      - identities
+  /api/v1/identities/password-reset/issue:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Target user and auditable reason
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.IssuePasswordResetRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.IssuePasswordResetResponseBody'
+              type: object
+      security:
+      - Bearer: []
+      summary: Issue a one-time password recovery token for another user
       tags:
       - identities
   /api/v1/identities/register:

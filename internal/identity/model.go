@@ -41,6 +41,25 @@ type Credential struct {
 	audit.Fields
 }
 
+type PasswordResetChallenge struct {
+	TokenHash  string     `db:"token_hash"`
+	UserID     string     `db:"user_id"`
+	Reason     string     `db:"reason"`
+	ExpiresAt  time.Time  `db:"expires_at"`
+	ConsumedAt *time.Time `db:"consumed_at"`
+	audit.Fields
+}
+
+type PasswordResetIssue struct {
+	ResetToken string
+	ExpiresAt  time.Time
+}
+
+type PasswordResetResult struct {
+	Changed         bool
+	RevokedSessions uint64
+}
+
 type Session struct {
 	ID               string     `db:"id" json:"session_id"`
 	UserID           string     `db:"user_id" json:"user_id"`

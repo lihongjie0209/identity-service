@@ -12,10 +12,23 @@ import (
 )
 
 type sessionRetentionStub struct {
-	counts          []int64
-	challengeCounts []int64
-	before          []time.Time
-	challengeBefore []time.Time
+	counts              []int64
+	challengeCounts     []int64
+	before              []time.Time
+	challengeBefore     []time.Time
+	passwordResetCounts []int64
+	passwordResetBefore []time.Time
+}
+
+func (s *sessionRetentionStub) DeleteExpiredPasswordResetChallengesBefore(
+	_ context.Context,
+	before time.Time,
+	_ int,
+) (int64, error) {
+	s.passwordResetBefore = append(s.passwordResetBefore, before)
+	count := s.passwordResetCounts[0]
+	s.passwordResetCounts = s.passwordResetCounts[1:]
+	return count, nil
 }
 
 func (s *sessionRetentionStub) DeleteExpiredMFAChallengesBefore(
@@ -39,7 +52,9 @@ func (s *sessionRetentionStub) DeleteExpiredOrRevokedSessionsBefore(_ context.Co
 func TestSessionCleanerDeletesInBoundedBatches(t *testing.T) {
 	t.Parallel()
 
-	store := &sessionRetentionStub{counts: []int64{2, 1}, challengeCounts: []int64{2, 0}}
+	store := &sessionRetentionStub{
+		counts: []int64{2, 1}, challengeCounts: []int64{2, 0}, passwordResetCounts: []int64{2, 0},
+	}
 	cleaner, err := newSessionCleaner(fxtest.NewLifecycle(t), store, slog.New(slog.NewTextHandler(io.Discard, nil)), config.Config{Database: config.Database{Enabled: true}, Cron: config.Cron{SessionRetention: 30 * 24 * time.Hour, SessionCleanupInterval: time.Hour, SessionCleanupBatchSize: 2}})
 	if err != nil {
 		t.Fatalf("newSessionCleaner() error = %v", err)
@@ -55,6 +70,9 @@ func TestSessionCleanerDeletesInBoundedBatches(t *testing.T) {
 	if len(store.challengeBefore) != 2 || !store.challengeBefore[0].Equal(now.Add(-24*time.Hour)) {
 		t.Fatalf("unexpected mfa challenge cleanup cutoffs: %v", store.challengeBefore)
 	}
+	if len(store.passwordResetBefore) != 2 || !store.passwordResetBefore[0].Equal(now.Add(-24*time.Hour)) {
+		t.Fatalf("unexpected password reset cleanup cutoffs: %v", store.passwordResetBefore)
+	}
 }
 
 func TestSessionCleanerAppliesSafeDefaults(t *testing.T) {
@@ -62,7 +80,7 @@ func TestSessionCleanerAppliesSafeDefaults(t *testing.T) {
 
 	cleaner, err := newSessionCleaner(
 		fxtest.NewLifecycle(t),
-		&sessionRetentionStub{counts: []int64{0}, challengeCounts: []int64{0}},
+		&sessionRetentionStub{counts: []int64{0}, challengeCounts: []int64{0}, passwordResetCounts: []int64{0}},
 		slog.Default(),
 		config.Config{},
 	)

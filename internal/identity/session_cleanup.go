@@ -14,6 +14,7 @@ import (
 type sessionRetentionStore interface {
 	DeleteExpiredOrRevokedSessionsBefore(context.Context, time.Time, int) (int64, error)
 	DeleteExpiredMFAChallengesBefore(context.Context, time.Time, int) (int64, error)
+	DeleteExpiredPasswordResetChallengesBefore(context.Context, time.Time, int) (int64, error)
 }
 
 type SessionCleaner struct {
@@ -73,6 +74,22 @@ func (c *SessionCleaner) clean(ctx context.Context) error {
 		}
 		if deleted > 0 {
 			c.logger.InfoContext(ctx, "deleted expired mfa login challenges", "count", deleted)
+		}
+		if deleted < int64(c.batchSize) {
+			break
+		}
+	}
+	for {
+		deleted, err := c.store.DeleteExpiredPasswordResetChallengesBefore(
+			ctx,
+			c.now().Add(-24*time.Hour),
+			c.batchSize,
+		)
+		if err != nil {
+			return err
+		}
+		if deleted > 0 {
+			c.logger.InfoContext(ctx, "deleted expired password reset challenges", "count", deleted)
 		}
 		if deleted < int64(c.batchSize) {
 			return nil

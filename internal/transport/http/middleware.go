@@ -129,16 +129,17 @@ func Authorization(enabled bool, authorizer platformauthz.Authorizer, logger *sl
 
 func identityHTTPRequirement(route string) (platformauthz.Requirement, bool) {
 	requirements := map[string]platformauthz.Requirement{
-		"/api/v1/sessions/list":                  {Resource: "identity.session", Action: "list", Scope: platformauthz.ScopePlatform},
-		"/api/v1/sessions/revoke":                {Resource: "identity.session", Action: "revoke", Scope: platformauthz.ScopePlatform},
-		"/api/v1/identities/register":            {Resource: "identity.user", Action: "create", Scope: platformauthz.ScopePlatform},
-		"/api/v1/identities/list":                {Resource: "identity.user", Action: "list", Scope: platformauthz.ScopePlatform},
-		"/api/v1/identities/update-status":       {Resource: "identity.user", Action: "update-status", Scope: platformauthz.ScopePlatform},
-		"/api/v1/identities/mfa/status":          {Resource: "identity.user", Action: "mfa-reset", Scope: platformauthz.ScopePlatform},
-		"/api/v1/identities/mfa/reset":           {Resource: "identity.user", Action: "mfa-reset", Scope: platformauthz.ScopePlatform},
-		"/api/v1/service-accounts/create":        {Resource: "identity.service-account", Action: "create", Scope: platformauthz.ScopePlatform},
-		"/api/v1/service-accounts/list":          {Resource: "identity.service-account", Action: "list", Scope: platformauthz.ScopePlatform},
-		"/api/v1/service-accounts/update-status": {Resource: "identity.service-account", Action: "update-status", Scope: platformauthz.ScopePlatform},
+		"/api/v1/sessions/list":                   {Resource: "identity.session", Action: "list", Scope: platformauthz.ScopePlatform},
+		"/api/v1/sessions/revoke":                 {Resource: "identity.session", Action: "revoke", Scope: platformauthz.ScopePlatform},
+		"/api/v1/identities/register":             {Resource: "identity.user", Action: "create", Scope: platformauthz.ScopePlatform},
+		"/api/v1/identities/list":                 {Resource: "identity.user", Action: "list", Scope: platformauthz.ScopePlatform},
+		"/api/v1/identities/update-status":        {Resource: "identity.user", Action: "update-status", Scope: platformauthz.ScopePlatform},
+		"/api/v1/identities/password-reset/issue": {Resource: "identity.user", Action: "password-reset", Scope: platformauthz.ScopePlatform},
+		"/api/v1/identities/mfa/status":           {Resource: "identity.user", Action: "mfa-reset", Scope: platformauthz.ScopePlatform},
+		"/api/v1/identities/mfa/reset":            {Resource: "identity.user", Action: "mfa-reset", Scope: platformauthz.ScopePlatform},
+		"/api/v1/service-accounts/create":         {Resource: "identity.service-account", Action: "create", Scope: platformauthz.ScopePlatform},
+		"/api/v1/service-accounts/list":           {Resource: "identity.service-account", Action: "list", Scope: platformauthz.ScopePlatform},
+		"/api/v1/service-accounts/update-status":  {Resource: "identity.service-account", Action: "update-status", Scope: platformauthz.ScopePlatform},
 	}
 	requirement, ok := requirements[route]
 	return requirement, ok

@@ -102,3 +102,35 @@ func TestMFAMigrationEncryptsSecretsAndAuditsMutableRows(t *testing.T) {
 		}
 	}
 }
+
+func TestPasswordResetMigrationStoresOnlyTokenHashAndAuditFields(t *testing.T) {
+	t.Parallel()
+	for _, database := range []string{"postgres", "mysql", "kingbase"} {
+		path := filepath.Join("..", "..", "migrations", database, "000006_password_reset.up.sql")
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sql := string(content)
+		for _, required := range []string{
+			"CREATE TABLE password_reset_challenges",
+			"token_hash",
+			"reason",
+			"expires_at",
+			"consumed_at",
+			"version BIGINT NOT NULL DEFAULT 1",
+			"created_at",
+			"updated_at",
+			"created_by",
+			"updated_by",
+			"idx_password_reset_expiry",
+		} {
+			if !strings.Contains(sql, required) {
+				t.Errorf("%s migration missing %q", database, required)
+			}
+		}
+		if strings.Contains(sql, "reset_token") || strings.Contains(sql, "token TEXT") {
+			t.Errorf("%s migration persists plaintext reset token", database)
+		}
+	}
+}

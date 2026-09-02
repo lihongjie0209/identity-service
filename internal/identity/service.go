@@ -351,7 +351,12 @@ func (s *Service) ChangePassword(ctx context.Context, currentPassword, newPasswo
 			"platform.identity.v1.PasswordChanged",
 			actor.ID,
 			now,
-			&identityv1.PasswordChangedEvent{UserId: actor.ID, RevokedSessions: count},
+			&identityv1.PasswordChangedEvent{
+				UserId:          actor.ID,
+				RevokedSessions: count,
+				ChangeType:      identityv1.PasswordChangeType_PASSWORD_CHANGE_TYPE_SELF_SERVICE,
+				Reason:          "user changed password",
+			},
 		)
 		if err != nil {
 			return err

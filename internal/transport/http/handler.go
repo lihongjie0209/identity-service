@@ -210,6 +210,22 @@ type UpdateIdentityStatusRequest struct {
 	Reason  string `json:"reason"`
 	Version int64  `json:"version" binding:"required"`
 }
+type IssuePasswordResetRequest struct {
+	UserID string `json:"user_id" binding:"required"`
+	Reason string `json:"reason" binding:"required"`
+}
+type IssuePasswordResetResponseBody struct {
+	ResetToken string    `json:"reset_token"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+type ConfirmPasswordResetRequest struct {
+	ResetToken  string `json:"reset_token" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required"`
+}
+type ConfirmPasswordResetResponseBody struct {
+	Changed         bool   `json:"changed"`
+	RevokedSessions uint64 `json:"revoked_sessions"`
+}
 type ListIdentitiesRequest struct {
 	Keyword  string `json:"keyword"`
 	Status   string `json:"status"`
@@ -732,6 +748,55 @@ func (h *Handler) UpdateIdentityStatus(c *gin.Context) {
 		return
 	}
 	OK(c, updated)
+}
+
+// IssuePasswordReset godoc
+// @Summary Issue a one-time password recovery token for another user
+// @Tags identities
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body IssuePasswordResetRequest true "Target user and auditable reason"
+// @Success 200 {object} Response{body=IssuePasswordResetResponseBody}
+// @Router /api/v1/identities/password-reset/issue [post]
+func (h *Handler) IssuePasswordReset(c *gin.Context) {
+	var req IssuePasswordResetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	issue, err := h.identities.IssuePasswordReset(c.Request.Context(), req.UserID, req.Reason)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, IssuePasswordResetResponseBody{ResetToken: issue.ResetToken, ExpiresAt: issue.ExpiresAt})
+}
+
+// ConfirmPasswordReset godoc
+// @Summary Consume a one-time recovery token and replace the password
+// @Tags authentication
+// @Accept json
+// @Produce json
+// @Param request body ConfirmPasswordResetRequest true "One-time token and new password"
+// @Success 200 {object} Response{body=ConfirmPasswordResetResponseBody}
+// @Failure 401 {object} Response "Code 20001: invalid, expired, or consumed token"
+// @Router /api/v1/auth/password-reset/confirm [post]
+func (h *Handler) ConfirmPasswordReset(c *gin.Context) {
+	var req ConfirmPasswordResetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	result, err := h.identities.ConfirmPasswordReset(c.Request.Context(), req.ResetToken, req.NewPassword)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, ConfirmPasswordResetResponseBody{
+		Changed:         result.Changed,
+		RevokedSessions: result.RevokedSessions,
+	})
 }
 
 // AdminMFAStatus godoc

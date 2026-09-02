@@ -399,7 +399,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("mfa.challenge_ttl", "5m")
 	v.SetDefault("auth.client_id", "")
 	v.SetDefault("auth.client_secret", "")
-	v.SetDefault("auth.skip_http_paths", []string{"/api/v1/auth/login", "/api/v1/auth/mfa/verify", "/api/v1/auth/refresh", "/api/v1/auth/service-token", "/api/v1/version"})
+	v.SetDefault("auth.skip_http_paths", []string{"/api/v1/auth/login", "/api/v1/auth/mfa/verify", "/api/v1/auth/refresh", "/api/v1/auth/password-reset/confirm", "/api/v1/auth/service-token", "/api/v1/version"})
 	v.SetDefault("auth.skip_grpc_methods", []string{"/grpc.health.v1.Health/*"})
 	v.SetDefault("auth.psk.enabled", false)
 	v.SetDefault("auth.psk.key", "")
