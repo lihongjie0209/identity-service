@@ -2,6 +2,7 @@ package identity
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
 	"testing"
 	"time"
@@ -119,5 +120,42 @@ func TestServiceListServiceAccountsRejectsUnknownStatus(t *testing.T) {
 	var appErr *apperror.Error
 	if !errors.As(err, &appErr) || appErr.Code != apperror.CodeInvalidArgument {
 		t.Fatalf("ListServiceAccounts() error = %v", err)
+	}
+}
+
+func TestServiceBatchGetServiceAccountsNormalizesIDsAndAudiences(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	sqlDB := sqlx.NewDb(db, "sqlmock")
+	service, err := NewService(NewRepository(sqlDB), database.NewTransactor(sqlDB), config.Config{
+		App: config.App{Name: "identity-service"},
+		JWT: config.JWT{Issuer: "test", Secret: "01234567890123456789012345678901", TTL: time.Hour},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	query := "SELECT " + serviceAccountColumns + " FROM service_accounts WHERE id IN (?) ORDER BY id"
+	mock.ExpectQuery(regexp.QuoteMeta(query)).WithArgs("account-1").WillReturnRows(sqlmock.NewRows([]string{
+		"id", "client_id", "name", "secret_hash", "status", "audiences_json",
+		"version", "created_at", "updated_at", "created_by", "updated_by",
+	}).AddRow("account-1", "svc_report", "Reporting", "hash", StatusActive, `["reporting-api"]`, 1, now, now, "admin", "admin"))
+	items, err := service.BatchGetServiceAccounts(t.Context(), []string{" account-1 ", "account-1"})
+	if err != nil || len(items) != 1 || len(items[0].Audiences) != 1 {
+		t.Fatalf("BatchGetServiceAccounts() = (%+v, %v)", items, err)
+	}
+	tooMany := make([]string, 101)
+	for index := range tooMany {
+		tooMany[index] = fmt.Sprintf("account-%d", index)
+	}
+	if _, err := service.BatchGetServiceAccounts(t.Context(), tooMany); err == nil {
+		t.Fatal("oversized service account batch must fail")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }

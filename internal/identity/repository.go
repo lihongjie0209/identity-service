@@ -487,6 +487,18 @@ func (r *Repository) ListServiceAccounts(
 	return accounts, total, nil
 }
 
+func (r *Repository) BatchGetServiceAccounts(ctx context.Context, ids []string) ([]ServiceAccount, error) {
+	query, args, err := sqlx.In("SELECT "+serviceAccountColumns+" FROM service_accounts WHERE id IN (?) ORDER BY id", ids)
+	if err != nil {
+		return nil, fmt.Errorf("build batch service account query: %w", err)
+	}
+	accounts := make([]ServiceAccount, 0, len(ids))
+	if err := r.db.SelectContext(ctx, &accounts, r.db.Rebind(query), args...); err != nil {
+		return nil, fmt.Errorf("batch get service accounts: %w", err)
+	}
+	return accounts, nil
+}
+
 func (r *Repository) CreateServiceAccount(ctx context.Context, tx *sqlx.Tx, account ServiceAccount) error {
 	query := r.db.Rebind("INSERT INTO service_accounts (id, client_id, name, secret_hash, status, audiences_json, version, created_at, updated_at, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 	if _, err := tx.ExecContext(ctx, query, account.ID, account.ClientID, account.Name, account.SecretHash, account.Status, account.AudiencesJSON, account.Version, account.CreatedAt, account.UpdatedAt, account.CreatedBy, account.UpdatedBy); err != nil {

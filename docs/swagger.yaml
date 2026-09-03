@@ -69,6 +69,15 @@ definitions:
     required:
     - user_ids
     type: object
+  httptransport.BatchGetServiceAccountsRequest:
+    properties:
+      service_account_ids:
+        items:
+          type: string
+        type: array
+    required:
+    - service_account_ids
+    type: object
   httptransport.ChangePasswordRequest:
     properties:
       current_password:
@@ -467,6 +476,13 @@ definitions:
         type: string
       version:
         type: integer
+    type: object
+  httptransport.ServiceAccountBatchResponseBody:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/httptransport.ServiceAccountResponseBody'
+        type: array
     type: object
   httptransport.ServiceAccountPageResponseBody:
     properties:
@@ -1379,6 +1395,34 @@ paths:
       summary: Return the authenticated subject and current user profile
       tags:
       - authentication
+  /api/v1/service-accounts/batch-get:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Service account IDs (maximum 100)
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.BatchGetServiceAccountsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.ServiceAccountBatchResponseBody'
+              type: object
+      security:
+      - Bearer: []
+      summary: Get a bounded set of service accounts by ID
+      tags:
+      - service-accounts
   /api/v1/service-accounts/create:
     post:
       consumes:

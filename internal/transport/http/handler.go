@@ -169,6 +169,9 @@ type ListServiceAccountsRequest struct {
 	Page     int    `json:"page"`
 	PageSize int    `json:"page_size"`
 }
+type BatchGetServiceAccountsRequest struct {
+	ServiceAccountIDs []string `json:"service_account_ids" binding:"required"`
+}
 type ServiceAccountResponseBody struct {
 	ID        string    `json:"id"`
 	ClientID  string    `json:"client_id"`
@@ -186,6 +189,9 @@ type ServiceAccountPageResponseBody struct {
 	Total    int64                        `json:"total"`
 	Page     int                          `json:"page"`
 	PageSize int                          `json:"page_size"`
+}
+type ServiceAccountBatchResponseBody struct {
+	Items []ServiceAccountResponseBody `json:"items"`
 }
 type CreateServiceAccountResponseBody struct {
 	Account      ServiceAccountResponseBody `json:"account"`
@@ -1048,6 +1054,33 @@ func (h *Handler) ListServiceAccounts(c *gin.Context) {
 		Page:     page.Page,
 		PageSize: page.PageSize,
 	})
+}
+
+// BatchGetServiceAccounts godoc
+// @Summary Get a bounded set of service accounts by ID
+// @Tags service-accounts
+// @Accept json
+// @Produce json
+// @Security Bearer
+// @Param request body BatchGetServiceAccountsRequest true "Service account IDs (maximum 100)"
+// @Success 200 {object} Response{body=ServiceAccountBatchResponseBody}
+// @Router /api/v1/service-accounts/batch-get [post]
+func (h *Handler) BatchGetServiceAccounts(c *gin.Context) {
+	var request BatchGetServiceAccountsRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	accounts, err := h.identities.BatchGetServiceAccounts(c.Request.Context(), request.ServiceAccountIDs)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	items := make([]ServiceAccountResponseBody, len(accounts))
+	for index := range accounts {
+		items[index] = serviceAccountResponse(accounts[index])
+	}
+	OK(c, ServiceAccountBatchResponseBody{Items: items})
 }
 
 // UpdateServiceAccountStatus godoc

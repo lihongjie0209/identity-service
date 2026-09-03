@@ -247,6 +247,7 @@ func identityHTTPRequirement(route string) (platformauthz.Requirement, bool) {
 		"/api/v1/identities/mfa/reset":            {Resource: "identity.user", Action: "mfa-reset", Scope: platformauthz.ScopePlatform},
 		"/api/v1/service-accounts/create":         {Resource: "identity.service-account", Action: "create", Scope: platformauthz.ScopePlatform},
 		"/api/v1/service-accounts/list":           {Resource: "identity.service-account", Action: "list", Scope: platformauthz.ScopePlatform},
+		"/api/v1/service-accounts/batch-get":      {Resource: "identity.service-account", Action: "list", Scope: platformauthz.ScopePlatform},
 		"/api/v1/service-accounts/update-status":  {Resource: "identity.service-account", Action: "update-status", Scope: platformauthz.ScopePlatform},
 		"/api/v1/service-accounts/rotate-secret":  {Resource: "identity.service-account", Action: "rotate-secret", Scope: platformauthz.ScopePlatform},
 	}

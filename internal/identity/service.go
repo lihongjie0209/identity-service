@@ -736,6 +736,38 @@ func (s *Service) ListServiceAccounts(
 	}
 	return Page[ServiceAccount]{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
 }
+
+func (s *Service) BatchGetServiceAccounts(ctx context.Context, ids []string) ([]ServiceAccount, error) {
+	unique := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return nil, apperror.Invalid("service_account_ids must not contain empty values", nil)
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
+		return []ServiceAccount{}, nil
+	}
+	if len(unique) > 100 {
+		return nil, apperror.Invalid("service_account_ids must not contain more than 100 values", nil)
+	}
+	items, err := s.repository.BatchGetServiceAccounts(ctx, unique)
+	if err != nil {
+		return nil, translateIdentityError(err)
+	}
+	for index := range items {
+		if err := decodeServiceAccountAudiences(&items[index]); err != nil {
+			return nil, apperror.Internal(err)
+		}
+	}
+	return items, nil
+}
 func (s *Service) CreateServiceAccount(ctx context.Context, name string, audiences []string) (ServiceAccount, string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(audiences) == 0 {

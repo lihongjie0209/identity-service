@@ -105,6 +105,10 @@ func TestRepositoryAndMigrations(t *testing.T) {
 			if len(accountPage.Items[0].Audiences) != 1 || accountPage.Items[0].Audiences[0] != "reporting-api" {
 				t.Fatalf("service account audiences=%v", accountPage.Items[0].Audiences)
 			}
+			accountBatch, err := service.BatchGetServiceAccounts(ctx, []string{account.ID, "missing-account"})
+			if err != nil || len(accountBatch) != 1 || accountBatch[0].ID != account.ID {
+				t.Fatalf("service account batch=%+v err=%v", accountBatch, err)
+			}
 			serviceToken, _, err := service.ServiceAccountToken(ctx, account.ClientID, secret)
 			if err != nil || serviceToken == "" {
 				t.Fatalf("service token error=%v", err)

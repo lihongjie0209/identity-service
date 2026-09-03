@@ -1221,6 +1221,56 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/service-accounts/batch-get": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "service-accounts"
+                ],
+                "summary": "Get a bounded set of service accounts by ID",
+                "parameters": [
+                    {
+                        "description": "Service account IDs (maximum 100)",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.BatchGetServiceAccountsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/httptransport.ServiceAccountBatchResponseBody"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/service-accounts/create": {
             "post": {
                 "security": [
@@ -1739,6 +1789,20 @@ const docTemplate = `{
             ],
             "properties": {
                 "user_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "httptransport.BatchGetServiceAccountsRequest": {
+            "type": "object",
+            "required": [
+                "service_account_ids"
+            ],
+            "properties": {
+                "service_account_ids": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -2350,6 +2414,17 @@ const docTemplate = `{
                 },
                 "version": {
                     "type": "integer"
+                }
+            }
+        },
+        "httptransport.ServiceAccountBatchResponseBody": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/httptransport.ServiceAccountResponseBody"
+                    }
                 }
             }
         },
