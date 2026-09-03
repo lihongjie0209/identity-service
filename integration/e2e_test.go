@@ -112,6 +112,10 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	if status != http.StatusOK || !bytes.Contains(meBody, []byte(`"username":"alice"`)) {
 		t.Fatalf("JWT profile status=%d body=%s", status, meBody)
 	}
+	identityBody, status := postJSONBody(t, baseURL+"/api/v1/identities/get", "Bearer "+token, "", fmt.Sprintf(`{"id":%q}`, userID))
+	if status != http.StatusOK || !bytes.Contains(identityBody, []byte(`"username":"alice"`)) {
+		t.Fatalf("get identity status=%d body=%s", status, identityBody)
+	}
 	otherLoginBody, status := postJSONBody(t, baseURL+"/api/v1/auth/login", "", "", `{"login":"alice","password":"correct horse battery staple"}`)
 	if status != http.StatusOK {
 		t.Fatalf("second login status=%d body=%s", status, otherLoginBody)
@@ -179,6 +183,20 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	)
 	if status != http.StatusOK {
 		t.Fatalf("create service account status=%d body=%s", status, serviceAccountBody)
+	}
+	var createdServiceAccount struct {
+		Body struct {
+			Account struct {
+				ID string `json:"id"`
+			} `json:"account"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(serviceAccountBody, &createdServiceAccount); err != nil || createdServiceAccount.Body.Account.ID == "" {
+		t.Fatalf("decode service account: %v body=%s", err, serviceAccountBody)
+	}
+	serviceAccountDetail, status := postJSONBody(t, baseURL+"/api/v1/service-accounts/get", "Bearer "+token, "", fmt.Sprintf(`{"id":%q}`, createdServiceAccount.Body.Account.ID))
+	if status != http.StatusOK || !bytes.Contains(serviceAccountDetail, []byte(`"name":"reporting"`)) {
+		t.Fatalf("get service account status=%d body=%s", status, serviceAccountDetail)
 	}
 	serviceAccountsBody, status := postJSONBody(
 		t,
