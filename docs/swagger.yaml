@@ -186,6 +186,13 @@ definitions:
     required:
     - id
     type: object
+  httptransport.GetSessionRequest:
+    properties:
+      session_id:
+        type: string
+    required:
+    - session_id
+    type: object
   httptransport.IdentityBatchResponseBody:
     properties:
       items:
@@ -1606,6 +1613,34 @@ paths:
       summary: Enable or disable a service account with optimistic locking
       tags:
       - service-accounts
+  /api/v1/sessions/get:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Session ID
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.GetSessionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.SessionResponseBody'
+              type: object
+      security:
+      - Bearer: []
+      summary: Get an administrative session by ID
+      tags:
+      - sessions
   /api/v1/sessions/list:
     post:
       consumes:

@@ -126,6 +126,9 @@ type RevokeSessionRequest struct {
 	Reason    string `json:"reason" binding:"required"`
 	Version   int64  `json:"version" binding:"required"`
 }
+type GetSessionRequest struct {
+	SessionID string `json:"session_id" binding:"required"`
+}
 type SessionResponseBody struct {
 	SessionID       string     `json:"session_id"`
 	UserID          string     `json:"user_id"`
@@ -730,6 +733,29 @@ func (h *Handler) RevokeSession(c *gin.Context) {
 		req.Reason,
 		req.Version,
 	)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, sessionResponse(session, time.Now().UTC()))
+}
+
+// GetSession godoc
+// @Summary Get an administrative session by ID
+// @Tags sessions
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body GetSessionRequest true "Session ID"
+// @Success 200 {object} Response{body=SessionResponseBody}
+// @Router /api/v1/sessions/get [post]
+func (h *Handler) GetSession(c *gin.Context) {
+	var req GetSessionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	session, err := h.identities.GetSessionByID(c.Request.Context(), req.SessionID)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return

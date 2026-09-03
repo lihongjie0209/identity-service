@@ -236,6 +236,7 @@ func Authorization(enabled bool, authorizer platformauthz.Authorizer, logger *sl
 func identityHTTPRequirement(route string) (platformauthz.Requirement, bool) {
 	requirements := map[string]platformauthz.Requirement{
 		"/api/v1/sessions/list":                   {Resource: "identity.session", Action: "list", Scope: platformauthz.ScopePlatform},
+		"/api/v1/sessions/get":                    {Resource: "identity.session", Action: "read", Scope: platformauthz.ScopePlatform},
 		"/api/v1/sessions/revoke":                 {Resource: "identity.session", Action: "revoke", Scope: platformauthz.ScopePlatform},
 		"/api/v1/identities/register":             {Resource: "identity.user", Action: "create", Scope: platformauthz.ScopePlatform},
 		"/api/v1/identities/get":                  {Resource: "identity.user", Action: "read", Scope: platformauthz.ScopePlatform},

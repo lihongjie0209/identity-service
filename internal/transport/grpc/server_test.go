@@ -16,7 +16,7 @@ import (
 func TestIdentityGRPCRequirementCoversPlatformReadsOnly(t *testing.T) {
 	t.Parallel()
 	resolve := identityGRPCRequirement(true)
-	for _, method := range []string{identityv1.IdentityService_GetUser_FullMethodName, identityv1.IdentityService_BatchGetUsers_FullMethodName, identityv1.IdentityService_ListUsers_FullMethodName} {
+	for _, method := range []string{identityv1.IdentityService_GetUser_FullMethodName, identityv1.IdentityService_BatchGetUsers_FullMethodName, identityv1.IdentityService_ListUsers_FullMethodName, identityv1.IdentityService_GetSession_FullMethodName} {
 		requirement, ok := resolve(method)
 		if !ok || requirement.Resource == "" || requirement.Action == "" || requirement.Scope != platformauthz.ScopePlatform {
 			t.Fatalf("method %q requirement = %+v, %v", method, requirement, ok)

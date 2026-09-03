@@ -1571,6 +1571,56 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/get": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get an administrative session by ID",
+                "parameters": [
+                    {
+                        "description": "Session ID",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.GetSessionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/httptransport.SessionResponseBody"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/list": {
             "post": {
                 "security": [
@@ -2071,6 +2121,17 @@ const docTemplate = `{
             ],
             "properties": {
                 "id": {
+                    "type": "string"
+                }
+            }
+        },
+        "httptransport.GetSessionRequest": {
+            "type": "object",
+            "required": [
+                "session_id"
+            ],
+            "properties": {
+                "session_id": {
                     "type": "string"
                 }
             }

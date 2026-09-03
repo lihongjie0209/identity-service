@@ -661,6 +661,17 @@ func (s *Service) RevokeSessionByID(ctx context.Context, id, reason string, vers
 	}
 	return s.repository.GetSessionByID(ctx, current.ID)
 }
+func (s *Service) GetSessionByID(ctx context.Context, id string) (Session, error) {
+	if _, err := principal.Require(ctx); err != nil {
+		return Session{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return Session{}, apperror.Invalid("session_id is required", nil)
+	}
+	value, err := s.repository.GetSessionByID(ctx, id)
+	return value, translateIdentityError(err)
+}
 func (s *Service) RevokeTenantSessions(ctx context.Context, userID, tenantID, reason string) (uint64, error) {
 	actor, err := principal.Require(ctx)
 	if err != nil {

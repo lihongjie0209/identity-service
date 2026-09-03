@@ -74,6 +74,7 @@ func identityGRPCRequirement(enabled bool) platformauthz.GRPCResolver {
 			return platformauthz.Requirement{}, false
 		}
 		requirements := map[string]platformauthz.Requirement{
+			identityv1.IdentityService_GetSession_FullMethodName:    {Resource: "identity.session", Action: "read", Scope: platformauthz.ScopePlatform},
 			identityv1.IdentityService_GetUser_FullMethodName:       {Resource: "identity.user", Action: "read", Scope: platformauthz.ScopePlatform},
 			identityv1.IdentityService_BatchGetUsers_FullMethodName: {Resource: "identity.user", Action: "batch-read", Scope: platformauthz.ScopePlatform},
 			identityv1.IdentityService_ListUsers_FullMethodName:     {Resource: "identity.user", Action: "list", Scope: platformauthz.ScopePlatform},

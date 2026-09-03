@@ -2,6 +2,7 @@ package grpctransport
 
 import (
 	"context"
+	"time"
 
 	identitydomain "github.com/lihongjie0209/identity-service/internal/identity"
 	commonv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/common/v1"
@@ -73,6 +74,14 @@ func (s *identityServer) ListUsers(ctx context.Context, request *identityv1.List
 	}, nil
 }
 
+func (s *identityServer) GetSession(ctx context.Context, request *identityv1.GetSessionRequest) (*identityv1.GetSessionResponse, error) {
+	session, err := s.service.GetSessionByID(ctx, request.GetSessionId())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &identityv1.GetSessionResponse{Session: identitySession(session)}, nil
+}
+
 func (s *identityServer) ValidateSession(ctx context.Context, request *identityv1.ValidateSessionRequest) (*identityv1.ValidateSessionResponse, error) {
 	session, valid, err := s.service.ValidateSession(ctx, request.GetSessionId(), request.GetUserId())
 	if err != nil {
@@ -112,4 +121,18 @@ func (s *identityServer) GetServiceAccount(ctx context.Context, request *identit
 func identityUser(user identitydomain.User) *identityv1.User {
 	statuses := map[string]identityv1.UserStatus{identitydomain.StatusActive: identityv1.UserStatus_USER_STATUS_ACTIVE, identitydomain.StatusDisabled: identityv1.UserStatus_USER_STATUS_DISABLED, identitydomain.StatusLocked: identityv1.UserStatus_USER_STATUS_LOCKED, identitydomain.StatusClosed: identityv1.UserStatus_USER_STATUS_CLOSED}
 	return &identityv1.User{Id: user.ID, Username: user.Username, DisplayName: user.DisplayName, Email: user.Email, Phone: user.Phone, Status: statuses[user.Status], CreatedAt: timestamppb.New(user.CreatedAt), UpdatedAt: timestamppb.New(user.UpdatedAt), Version: user.Version, CreatedBy: user.CreatedBy, UpdatedBy: user.UpdatedBy}
+}
+
+func identitySession(session identitydomain.Session) *identityv1.Session {
+	status := "active"
+	if session.RevokedAt != nil {
+		status = "revoked"
+	} else if !session.ExpiresAt.After(time.Now().UTC()) {
+		status = "expired"
+	}
+	value := &identityv1.Session{Id: session.ID, UserId: session.UserID, Username: session.Username, UserDisplayName: session.UserDisplayName, TenantId: session.TenantID, MembershipId: session.MembershipID, Status: status, ExpiresAt: timestamppb.New(session.ExpiresAt), RevokeReason: session.RevokeReason, LastUsedAt: timestamppb.New(session.LastUsedAt), ClientIp: session.ClientIP, UserAgent: session.UserAgent, Version: session.Version, CreatedAt: timestamppb.New(session.CreatedAt), UpdatedAt: timestamppb.New(session.UpdatedAt), CreatedBy: session.CreatedBy, UpdatedBy: session.UpdatedBy}
+	if session.RevokedAt != nil {
+		value.RevokedAt = timestamppb.New(*session.RevokedAt)
+	}
+	return value
 }
