@@ -172,6 +172,20 @@ definitions:
       revoked_sessions:
         type: integer
     type: object
+  httptransport.GetIdentityRequest:
+    properties:
+      id:
+        type: string
+    required:
+    - id
+    type: object
+  httptransport.GetServiceAccountRequest:
+    properties:
+      id:
+        type: string
+    required:
+    - id
+    type: object
   httptransport.IdentityBatchResponseBody:
     properties:
       items:
@@ -1171,6 +1185,34 @@ paths:
       summary: Batch get up to 100 user identities
       tags:
       - identities
+  /api/v1/identities/get:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: User ID
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.GetIdentityRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.IdentityResponseBody'
+              type: object
+      security:
+      - Bearer: []
+      summary: Get a user identity by ID
+      tags:
+      - identities
   /api/v1/identities/list:
     post:
       consumes:
@@ -1449,6 +1491,34 @@ paths:
       security:
       - Bearer: []
       summary: Create a service account and return its secret once
+      tags:
+      - service-accounts
+  /api/v1/service-accounts/get:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Service account ID
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.GetServiceAccountRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.ServiceAccountResponseBody'
+              type: object
+      security:
+      - Bearer: []
+      summary: Get a service account by ID
       tags:
       - service-accounts
   /api/v1/service-accounts/list:

@@ -121,7 +121,7 @@ func (a authorizationStub) Authorize(context.Context, principal.Principal, platf
 
 func TestIdentityHTTPRequirementCoversAdministrationOnly(t *testing.T) {
 	t.Parallel()
-	for _, route := range []string{"/api/v1/sessions/list", "/api/v1/sessions/revoke", "/api/v1/identities/register", "/api/v1/identities/list", "/api/v1/identities/batch-get", "/api/v1/identities/update-profile", "/api/v1/identities/update-status", "/api/v1/identities/password-reset/issue", "/api/v1/identities/mfa/status", "/api/v1/identities/mfa/reset", "/api/v1/service-accounts/create", "/api/v1/service-accounts/list", "/api/v1/service-accounts/batch-get", "/api/v1/service-accounts/update-status", "/api/v1/service-accounts/rotate-secret"} {
+	for _, route := range []string{"/api/v1/sessions/list", "/api/v1/sessions/revoke", "/api/v1/identities/register", "/api/v1/identities/get", "/api/v1/identities/list", "/api/v1/identities/batch-get", "/api/v1/identities/update-profile", "/api/v1/identities/update-status", "/api/v1/identities/password-reset/issue", "/api/v1/identities/mfa/status", "/api/v1/identities/mfa/reset", "/api/v1/service-accounts/create", "/api/v1/service-accounts/get", "/api/v1/service-accounts/list", "/api/v1/service-accounts/batch-get", "/api/v1/service-accounts/update-status", "/api/v1/service-accounts/rotate-secret"} {
 		requirement, ok := identityHTTPRequirement(route)
 		if !ok || requirement.Resource == "" || requirement.Action == "" || requirement.Scope != platformauthz.ScopePlatform {
 			t.Fatalf("route %q requirement = %+v, %v", route, requirement, ok)

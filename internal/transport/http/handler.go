@@ -172,6 +172,9 @@ type ListServiceAccountsRequest struct {
 type BatchGetServiceAccountsRequest struct {
 	ServiceAccountIDs []string `json:"service_account_ids" binding:"required"`
 }
+type GetServiceAccountRequest struct {
+	ID string `json:"id" binding:"required"`
+}
 type ServiceAccountResponseBody struct {
 	ID        string    `json:"id"`
 	ClientID  string    `json:"client_id"`
@@ -243,6 +246,9 @@ type IdentityPageResponseBody struct {
 }
 type BatchGetIdentitiesRequest struct {
 	UserIDs []string `json:"user_ids" binding:"required"`
+}
+type GetIdentityRequest struct {
+	ID string `json:"id" binding:"required"`
 }
 type IdentityBatchResponseBody struct {
 	Items []IdentityResponseBody `json:"items"`
@@ -778,6 +784,29 @@ func (h *Handler) ListIdentities(c *gin.Context) {
 	OK(c, identityPageResponse(page))
 }
 
+// GetIdentity godoc
+// @Summary Get a user identity by ID
+// @Tags identities
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body GetIdentityRequest true "User ID"
+// @Success 200 {object} Response{body=IdentityResponseBody}
+// @Router /api/v1/identities/get [post]
+func (h *Handler) GetIdentity(c *gin.Context) {
+	var request GetIdentityRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	user, err := h.identities.GetUser(c.Request.Context(), request.ID)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, identityResponse(user))
+}
+
 // BatchGetIdentities godoc
 // @Summary Batch get up to 100 user identities
 // @Tags identities
@@ -1054,6 +1083,29 @@ func (h *Handler) ListServiceAccounts(c *gin.Context) {
 		Page:     page.Page,
 		PageSize: page.PageSize,
 	})
+}
+
+// GetServiceAccount godoc
+// @Summary Get a service account by ID
+// @Tags service-accounts
+// @Security Bearer
+// @Accept json
+// @Produce json
+// @Param request body GetServiceAccountRequest true "Service account ID"
+// @Success 200 {object} Response{body=ServiceAccountResponseBody}
+// @Router /api/v1/service-accounts/get [post]
+func (h *Handler) GetServiceAccount(c *gin.Context) {
+	var request GetServiceAccountRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	account, err := h.identities.GetServiceAccount(c.Request.Context(), request.ID)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, serviceAccountResponse(account))
 }
 
 // BatchGetServiceAccounts godoc

@@ -79,6 +79,33 @@ func TestHandlerBatchGetIdentitiesRejectsMissingIDs(t *testing.T) {
 	}
 }
 
+func TestHandlerDetailLookupsRejectMissingIDs(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	handler := NewHandler(nil, health.New(nil, nil, config.Config{}), nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	for _, test := range []struct {
+		name    string
+		path    string
+		handler gin.HandlerFunc
+	}{
+		{name: "identity", path: "/identities/get", handler: handler.GetIdentity},
+		{name: "service account", path: "/service-accounts/get", handler: handler.GetServiceAccount},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			router := gin.New()
+			router.POST(test.path, test.handler)
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
 func TestHandlerMeBindsProfileToAuthenticatedUser(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
